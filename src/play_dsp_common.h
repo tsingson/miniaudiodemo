@@ -11,10 +11,30 @@
 #define ANALYZER_BINS 48
 #define MAX_CHANNELS 2
 #define EQ_BANDS 8
-#define EQ_MIN_GAIN_DB -12.0f
-#define EQ_MAX_GAIN_DB 12.0f
+#define EQ_MIN_GAIN_DB -24.0f
+#define EQ_MAX_GAIN_DB 24.0f
 #define EQ_MIN_Q 0.3f
-#define EQ_MAX_Q 4.0f
+#define EQ_MAX_Q 12.0f
+
+#define EQ_LINEAR_MAX_HZ 2000.0f
+#define EQ_DYNAMIC_MAX_HZ 16000.0f
+#define DYNAMIC_EQ_MIN_ATTACK 0.01f
+#define DYNAMIC_EQ_MAX_ATTACK 0.50f
+#define DYNAMIC_EQ_MIN_RELEASE 0.005f
+#define DYNAMIC_EQ_MAX_RELEASE 0.30f
+#define DYNAMIC_EQ_MIN_THRESHOLD 0.02f
+#define DYNAMIC_EQ_MAX_THRESHOLD 1.00f
+#define DYNAMIC_EQ_MIN_MAX_REDUCTION_DB 0.0f
+#define DYNAMIC_EQ_MAX_MAX_REDUCTION_DB 24.0f
+#define DYNAMIC_EQ_MIN_STRENGTH_DB 1.0f
+#define DYNAMIC_EQ_MAX_STRENGTH_DB 36.0f
+
+typedef enum
+{
+    PLAY_EQ_MODE_LINEAR = 0,
+    PLAY_EQ_MODE_DYNAMIC = 1,
+    PLAY_EQ_MODE_NORMAL = 2
+} play_eq_mode;
 
 typedef struct
 {
@@ -24,6 +44,14 @@ typedef struct
     float bandFreqs[EQ_BANDS];
     float gainsDB[EQ_BANDS];
     float qValues[EQ_BANDS];
+    uint8_t bandModes[EQ_BANDS];
+    float dynamicEnv[EQ_BANDS][MAX_CHANNELS];
+    float dynamicReductionDB[EQ_BANDS];
+    float dynamicAttack;
+    float dynamicRelease;
+    float dynamicThreshold;
+    float dynamicMaxReductionDB;
+    float dynamicStrengthDB;
 
     double b0[EQ_BANDS];
     double b1[EQ_BANDS];
@@ -36,9 +64,11 @@ typedef struct
     double y1[EQ_BANDS][MAX_CHANNELS];
     double y2[EQ_BANDS][MAX_CHANNELS];
 
-    float samples[ANALYZER_WINDOW];
+    float preSamples[ANALYZER_WINDOW];
+    float postSamples[ANALYZER_WINDOW];
     int writeIndex;
-    float bins[ANALYZER_BINS];
+    float preBins[ANALYZER_BINS];
+    float postBins[ANALYZER_BINS];
     int binIndex[ANALYZER_BINS];
 
 #ifdef USE_CMSIS_DSP
@@ -53,8 +83,22 @@ typedef struct
 
 int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels);
 void play_dsp_set_eq_params(play_dsp_state* state, const float* gains, int gainCount, const float* qs, int qCount);
+void play_dsp_set_dynamic_params(play_dsp_state* state,
+                                 float attack,
+                                 float release,
+                                 float threshold,
+                                 float maxReductionDB,
+                                 float strengthDB);
+void play_dsp_get_dynamic_params(const play_dsp_state* state,
+                                 float* outAttack,
+                                 float* outRelease,
+                                 float* outThreshold,
+                                 float* outMaxReductionDB,
+                                 float* outStrengthDB);
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels);
 void play_dsp_copy_bins(const play_dsp_state* state, float* outBins, int maxCount);
+void play_dsp_copy_spectrum(const play_dsp_state* state, float* outPreBins, float* outPostBins, int maxCount);
+void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes, float* outReductionDB, int maxCount);
 void play_dsp_copy_eq(const play_dsp_state* state, float* outFreqs, float* outGains, float* outQs, int maxCount);
 
 #endif

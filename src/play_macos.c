@@ -157,6 +157,37 @@ static int parse_float_array_from_json(const char* body, const char* key, float*
     return count;
 }
 
+static bool parse_float_value_from_json(const char* body, const char* key, float* out)
+{
+    const char* p = strstr(body, key);
+    char* endPtr;
+
+    if (p == NULL)
+    {
+        return false;
+    }
+
+    p = strchr(p, ':');
+    if (p == NULL)
+    {
+        return false;
+    }
+    ++p;
+
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+    {
+        ++p;
+    }
+
+    *out = strtof(p, &endPtr);
+    if (endPtr == p)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 static void handle_http_request(http_server_state* http, int clientFd)
 {
     char req[2048];
@@ -169,16 +200,36 @@ static void handle_http_request(http_server_state* http, int clientFd)
     req[n] = '\0';
     if (strncmp(req, "GET /spectrum", 13) == 0)
     {
-        char body[4096];
-        float bins[ANALYZER_BINS];
+        char body[8192];
+        float preBins[ANALYZER_BINS];
+        float postBins[ANALYZER_BINS];
         int offset = 0;
 
         pthread_mutex_lock(&http->app->dspMutex);
-        play_dsp_copy_bins(&http->app->dsp, bins, ANALYZER_BINS);
-        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "{\"sampleRate\":%u,\"bins\":[", http->app->dsp.sampleRate);
+        play_dsp_copy_spectrum(&http->app->dsp, preBins, postBins, ANALYZER_BINS);
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "{\"sampleRate\":%u,\"preBins\":[", http->app->dsp.sampleRate);
         for (int i = 0; i < ANALYZER_BINS; ++i)
         {
-            float bin = bins[i];
+            float bin = preBins[i];
+            if (!isfinite(bin))
+            {
+                bin = -80.0f;
+            }
+            offset += snprintf(body + offset,
+                               sizeof(body) - (size_t)offset,
+                               "%s%.2f",
+                               (i == 0) ? "" : ",",
+                               bin);
+            if (offset >= (int)sizeof(body) - 16)
+            {
+                break;
+            }
+        }
+
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"postBins\":[");
+        for (int i = 0; i < ANALYZER_BINS; ++i)
+        {
+            float bin = postBins[i];
             if (!isfinite(bin))
             {
                 bin = -80.0f;
@@ -202,22 +253,51 @@ static void handle_http_request(http_server_state* http, int clientFd)
 
     if (strncmp(req, "GET /eq", 7) == 0)
     {
-        char body[1024];
+        char body[4096];
         float freqs[EQ_BANDS];
         float gains[EQ_BANDS];
         float qs[EQ_BANDS];
+        uint8_t modes[EQ_BANDS];
+        float dynamicReductionDB[EQ_BANDS];
+        float dynamicAttack;
+        float dynamicRelease;
+        float dynamicThreshold;
+        float dynamicMaxReductionDB;
+        float dynamicStrengthDB;
         int offset = 0;
 
         pthread_mutex_lock(&http->app->dspMutex);
         play_dsp_copy_eq(&http->app->dsp, freqs, gains, qs, EQ_BANDS);
+        play_dsp_copy_dynamic_curve(&http->app->dsp, modes, dynamicReductionDB, EQ_BANDS);
+        play_dsp_get_dynamic_params(&http->app->dsp,
+                                    &dynamicAttack,
+                                    &dynamicRelease,
+                                    &dynamicThreshold,
+                                    &dynamicMaxReductionDB,
+                                    &dynamicStrengthDB);
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
-                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"freqs\":[",
+                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
                            EQ_MIN_GAIN_DB,
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
                            EQ_MAX_Q,
-                           http->app->dsp.sampleRate);
+                           http->app->dsp.sampleRate,
+                           dynamicAttack,
+                           dynamicRelease,
+                           dynamicThreshold,
+                           dynamicMaxReductionDB,
+                           dynamicStrengthDB,
+                           DYNAMIC_EQ_MIN_ATTACK,
+                           DYNAMIC_EQ_MAX_ATTACK,
+                           DYNAMIC_EQ_MIN_RELEASE,
+                           DYNAMIC_EQ_MAX_RELEASE,
+                           DYNAMIC_EQ_MIN_THRESHOLD,
+                           DYNAMIC_EQ_MAX_THRESHOLD,
+                           DYNAMIC_EQ_MIN_MAX_REDUCTION_DB,
+                           DYNAMIC_EQ_MAX_MAX_REDUCTION_DB,
+                           DYNAMIC_EQ_MIN_STRENGTH_DB,
+                           DYNAMIC_EQ_MAX_STRENGTH_DB);
         for (int i = 0; i < EQ_BANDS; ++i)
         {
             offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.0f", (i == 0) ? "" : ",", freqs[i]);
@@ -232,6 +312,16 @@ static void handle_http_request(http_server_state* http, int clientFd)
         {
             offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",", qs[i]);
         }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"modes\":[");
+        for (int i = 0; i < EQ_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%u", (i == 0) ? "" : ",", (unsigned)modes[i]);
+        }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"dynamicReductionDB\":[");
+        for (int i = 0; i < EQ_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",", dynamicReductionDB[i]);
+        }
         pthread_mutex_unlock(&http->app->dspMutex);
 
         snprintf(body + offset, sizeof(body) - (size_t)offset, "]}");
@@ -244,8 +334,19 @@ static void handle_http_request(http_server_state* http, int clientFd)
         const char* bodyStart = strstr(req, "\r\n\r\n");
         float gains[EQ_BANDS];
         float qs[EQ_BANDS];
+        float dynamicAttack;
+        float dynamicRelease;
+        float dynamicThreshold;
+        float dynamicMaxReductionDB;
+        float dynamicStrengthDB;
         int gainCount;
         int qCount;
+        bool hasDynamicAttack;
+        bool hasDynamicRelease;
+        bool hasDynamicThreshold;
+        bool hasDynamicMaxReductionDB;
+        bool hasDynamicStrengthDB;
+        bool hasAnyDynamic;
 
         if (bodyStart == NULL)
         {
@@ -256,15 +357,68 @@ static void handle_http_request(http_server_state* http, int clientFd)
         bodyStart += 4;
         gainCount = parse_float_array_from_json(bodyStart, "\"gains\"", gains, EQ_BANDS);
         qCount = parse_float_array_from_json(bodyStart, "\"qs\"", qs, EQ_BANDS);
+        hasDynamicAttack = parse_float_value_from_json(bodyStart, "\"dynamicAttack\"", &dynamicAttack);
+        hasDynamicRelease = parse_float_value_from_json(bodyStart, "\"dynamicRelease\"", &dynamicRelease);
+        hasDynamicThreshold = parse_float_value_from_json(bodyStart, "\"dynamicThreshold\"", &dynamicThreshold);
+        hasDynamicMaxReductionDB = parse_float_value_from_json(bodyStart, "\"dynamicMaxReductionDB\"", &dynamicMaxReductionDB);
+        hasDynamicStrengthDB = parse_float_value_from_json(bodyStart, "\"dynamicStrengthDB\"", &dynamicStrengthDB);
+        hasAnyDynamic = hasDynamicAttack || hasDynamicRelease || hasDynamicThreshold || hasDynamicMaxReductionDB || hasDynamicStrengthDB;
 
-        if (gainCount <= 0 && qCount <= 0)
+        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic)
         {
             send_http_response(clientFd, "application/json", "{\"ok\":false,\"reason\":\"invalid eq payload\"}");
             return;
         }
 
         pthread_mutex_lock(&http->app->dspMutex);
-        play_dsp_set_eq_params(&http->app->dsp, gains, gainCount, qs, qCount);
+        if (gainCount > 0 || qCount > 0)
+        {
+            play_dsp_set_eq_params(&http->app->dsp, gains, gainCount, qs, qCount);
+        }
+
+        if (hasAnyDynamic)
+        {
+            float currentAttack;
+            float currentRelease;
+            float currentThreshold;
+            float currentMaxReductionDB;
+            float currentStrengthDB;
+
+            play_dsp_get_dynamic_params(&http->app->dsp,
+                                        &currentAttack,
+                                        &currentRelease,
+                                        &currentThreshold,
+                                        &currentMaxReductionDB,
+                                        &currentStrengthDB);
+
+            if (hasDynamicAttack)
+            {
+                currentAttack = dynamicAttack;
+            }
+            if (hasDynamicRelease)
+            {
+                currentRelease = dynamicRelease;
+            }
+            if (hasDynamicThreshold)
+            {
+                currentThreshold = dynamicThreshold;
+            }
+            if (hasDynamicMaxReductionDB)
+            {
+                currentMaxReductionDB = dynamicMaxReductionDB;
+            }
+            if (hasDynamicStrengthDB)
+            {
+                currentStrengthDB = dynamicStrengthDB;
+            }
+
+            play_dsp_set_dynamic_params(&http->app->dsp,
+                                        currentAttack,
+                                        currentRelease,
+                                        currentThreshold,
+                                        currentMaxReductionDB,
+                                        currentStrengthDB);
+        }
         pthread_mutex_unlock(&http->app->dspMutex);
 
         send_http_response(clientFd, "application/json", "{\"ok\":true}");
@@ -279,18 +433,26 @@ static void handle_http_request(http_server_state* http, int clientFd)
             ".wrap{padding:20px;max-width:1100px;margin:0 auto;}h1{font-size:24px;margin:0 0 8px;}"
             ".sub{opacity:.8;margin-bottom:12px}.panel{background:rgba(15,23,42,.66);border:1px solid #243449;border-radius:14px;padding:12px;}"
             "canvas{width:100%;height:400px;display:block;border-radius:10px;background:linear-gradient(180deg,#0b1220,#050910);}"
+            ".dyn{margin-top:12px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}"
             ".sliders{margin-top:14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.cell{background:#0b1424;border:1px solid #243449;border-radius:10px;padding:8px;}"
             "label{display:block;font-size:12px;opacity:.85;margin-bottom:6px}input[type=range]{width:100%}.val{font-size:12px;color:#93c5fd}"
+            ".mode{font-size:10px;padding:1px 6px;border-radius:999px;background:#1f2937;color:#93c5fd;margin-left:6px;letter-spacing:.2px;}"
             ".qval{font-size:12px;color:#fca5a5}.row{display:flex;justify-content:space-between;align-items:center}"
-            "@media(max-width:900px){.sliders{grid-template-columns:repeat(2,minmax(0,1fr));}}</style></head>"
+            "@media(max-width:900px){.dyn{grid-template-columns:repeat(2,minmax(0,1fr));}.sliders{grid-template-columns:repeat(2,minmax(0,1fr));}}</style></head>"
             "<body><div class='wrap'><h1>实时频谱 + 多段 EQ</h1><div class='sub'>拖拽橙色控制点或下方滑块，实时改变播放 EQ</div>"
-            "<div class='panel'><canvas id='c' width='1000' height='400'></canvas><div id='sliders' class='sliders'></div></div></div>"
+            "<div class='panel'><canvas id='c' width='1000' height='400'></canvas><div id='dyn' class='dyn'></div><div id='sliders' class='sliders'></div></div></div>"
             "<script>const c=document.getElementById('c');const g=c.getContext('2d');const slidersEl=document.getElementById('sliders');"
-            "let spec=[];let freqs=[];let gains=[];let qs=[];let minGain=-12,maxGain=12,minQ=.3,maxQ=4,sampleRate=48000;let drag=-1;let lastPost=0;"
+            "const dynEl=document.getElementById('dyn');"
+            "let specPre=[];let specPost=[];let freqs=[];let gains=[];let qs=[];let modes=[];let dynReduction=[];let minGain=-12,maxGain=12,minQ=.3,maxQ=4,sampleRate=48000;"
+            "let dyn={attack:.12,release:.02,threshold:.18,maxReductionDB:12,strengthDB:18};"
+            "let dynRange={attackMin:.01,attackMax:.5,releaseMin:.005,releaseMax:.3,thresholdMin:.02,thresholdMax:1,maxReductionDBMin:0,maxReductionDBMax:24,strengthDBMin:1,strengthDBMax:36};"
+            "let drag=-1;let lastPost=0;"
             "const specMinDb=-36,specMaxDb=36;"
             "const fMin=20,fMax=20000;function lx(f){return (Math.log(f)-Math.log(fMin))/(Math.log(fMax)-Math.log(fMin));}"
             "function xOfF(f){return 55+lx(f)*(c.width-100);}function yOfDb(db){const d=Math.max(specMinDb,Math.min(specMaxDb,db));return 30+(specMaxDb-d)/(specMaxDb-specMinDb)*(c.height-70);}"
             "function dbOfY(y){const t=(y-30)/(c.height-70);return specMaxDb-t*(specMaxDb-specMinDb);}"
+            "function eqModeOfFreq(f){if(f<=2000)return 'Linear';if(f>16000)return 'Normal';return 'Dynamic';}"
+            "function modeText(m,f){if(m===0)return 'Linear';if(m===1)return 'Dynamic';if(m===2)return 'Normal';return eqModeOfFreq(f);}"
             "function biquadMagAt(freq,f0,gainDb,q){const A=Math.pow(10,gainDb/40);const w0=2*Math.PI*f0/sampleRate;const alpha=Math.sin(w0)/(2*q);"
             "const b0=1+alpha*A,b1=-2*Math.cos(w0),b2=1-alpha*A,a0=1+alpha/A,a1=-2*Math.cos(w0),a2=1-alpha/A;"
             "const w=2*Math.PI*freq/sampleRate,c1=Math.cos(w),s1=Math.sin(w),c2=Math.cos(2*w),s2=Math.sin(2*w);"
@@ -304,20 +466,22 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "const ticks=[20,50,100,200,500,1000,2000,5000,10000,20000];ticks.forEach(f=>{const x=xOfF(f);g.beginPath();g.moveTo(x,25);g.lineTo(x,c.height-40);g.stroke();"
             "g.fillStyle='rgba(203,213,225,.82)';g.font='11px Avenir Next';g.fillText((f>=1000?(f/1000).toFixed(f%1000?1:0)+'k':f)+'Hz',x-14,c.height-18);});"
             "for(let d=specMinDb;d<=specMaxDb;d+=3){const y=yOfDb(d);g.beginPath();g.moveTo(48,y);g.lineTo(c.width-42,y);g.stroke();g.fillStyle='rgba(148,163,184,.8)';g.fillText(d+'dB',8,y+4);}"
-            "g.fillStyle='#22d3ee';g.fillText('Spectrum',c.width-230,20);g.fillStyle='#fb923c';g.fillText('EQ points',c.width-165,20);g.fillStyle='#e879f9';g.fillText('Estimated EQ',c.width-95,20);}"
-            "function draw(){drawGrid();if(spec.length){const sp=[];for(let i=0;i<spec.length;i++){const f=fMin*Math.pow(fMax/fMin,i/(spec.length-1));const db=Math.max(specMinDb,Math.min(specMaxDb,spec[i]));sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#22d3ee',2.2);}"
+            "g.fillStyle='#94a3b8';g.fillText('Pre-EQ',c.width-330,20);g.fillStyle='#22d3ee';g.fillText('Post-EQ',c.width-275,20);g.fillStyle='#34d399';g.fillText('Dynamic',c.width-215,20);g.fillStyle='#fb923c';g.fillText('EQ points',c.width-150,20);g.fillStyle='#e879f9';g.fillText('Estimated EQ',c.width-80,20);}"
+            "function draw(){drawGrid();if(specPre.length){const sp=[];for(let i=0;i<specPre.length;i++){const f=fMin*Math.pow(fMax/fMin,i/(specPre.length-1));const db=Math.max(specMinDb,Math.min(specMaxDb,specPre[i]));sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#94a3b8',1.6);}if(specPost.length){const sp=[];for(let i=0;i<specPost.length;i++){const f=fMin*Math.pow(fMax/fMin,i/(specPost.length-1));const db=Math.max(specMinDb,Math.min(specMaxDb,specPost[i]));sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#22d3ee',2.2);}"
+            "if(freqs.length&&modes.length&&dynReduction.length){const dp=freqs.map((f,i)=>({x:xOfF(f),y:yOfDb(-(dynReduction[i]||0)),f,m:modes[i]}));splinePath(dp,'#34d399',2.0);}"
             "if(freqs.length&&gains.length&&qs.length){const rp=[];for(let i=0;i<140;i++){const t=i/139;const f=fMin*Math.pow(fMax/fMin,t);const db=Math.max(minGain,Math.min(maxGain,eqResponseDb(f)));rp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(rp,'#e879f9',2.6);}"
             "if(freqs.length&&gains.length){const ep=freqs.map((f,i)=>({x:xOfF(f),y:yOfDb(gains[i]),f}));splinePath(ep,'#fb923c',3);"
             "ep.forEach(p=>{g.fillStyle='#f59e0b';g.beginPath();g.arc(p.x,p.y,6,0,Math.PI*2);g.fill();g.strokeStyle='#fed7aa';g.lineWidth=1;g.stroke();g.fillStyle='#ffe7cf';g.fillText((p.f>=1000?(p.f/1000).toFixed(p.f%1000?1:0)+'k':p.f)+'Hz',p.x-14,p.y-10);});}}"
-            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs})}).catch(()=>{});}"
+            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs,dynamicAttack:dyn.attack,dynamicRelease:dyn.release,dynamicThreshold:dyn.threshold,dynamicMaxReductionDB:dyn.maxReductionDB,dynamicStrengthDB:dyn.strengthDB})}).catch(()=>{});}"
+            "function buildDynamic(){const items=[{key:'attack',label:'Dyn Attack',min:dynRange.attackMin,max:dynRange.attackMax,step:0.001,digits:3},{key:'release',label:'Dyn Release',min:dynRange.releaseMin,max:dynRange.releaseMax,step:0.001,digits:3},{key:'threshold',label:'Threshold',min:dynRange.thresholdMin,max:dynRange.thresholdMax,step:0.005,digits:3},{key:'maxReductionDB',label:'Max Red (dB)',min:dynRange.maxReductionDBMin,max:dynRange.maxReductionDBMax,step:0.1,digits:1},{key:'strengthDB',label:'Strength (dB)',min:dynRange.strengthDBMin,max:dynRange.strengthDBMax,step:0.1,digits:1}];dynEl.innerHTML='';items.forEach(it=>{const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<div class=row><label>'+it.label+'</label><span class=val id=dv_'+it.key+'></span></div><input id=ds_'+it.key+' type=range min='+it.min+' max='+it.max+' step='+it.step+' value='+dyn[it.key]+'>';dynEl.appendChild(cell);const s=cell.querySelector('#ds_'+it.key);const v=cell.querySelector('#dv_'+it.key);const upd=()=>{dyn[it.key]=parseFloat(s.value);v.textContent=dyn[it.key].toFixed(it.digits);schedulePost();};s.addEventListener('input',upd);upd();});}"
             "function buildSliders(){slidersEl.innerHTML='';freqs.forEach((f,i)=>{const cell=document.createElement('div');cell.className='cell';"
-            "cell.innerHTML='<div class=row><label>'+ (f>=1000?(f/1000).toFixed(f%1000?1:0)+'k':f) +'Hz</label><span class=val id=v'+i+'></span></div><input id=sg'+i+' type=range min='+minGain+' max='+maxGain+' step=0.1 value='+gains[i]+'><div class=row><label>Q</label><span class=qval id=qv'+i+'></span></div><input id=sq'+i+' type=range min='+minQ+' max='+maxQ+' step=0.01 value='+qs[i]+'>';"
+            "cell.innerHTML='<div class=row><label>'+ (f>=1000?(f/1000).toFixed(f%1000?1:0)+'k':f) +'Hz <span class=mode>'+modeText(modes[i],f)+'</span></label><span class=val id=v'+i+'></span></div><input id=sg'+i+' type=range min='+minGain+' max='+maxGain+' step=0.1 value='+gains[i]+'><div class=row><label>Q</label><span class=qval id=qv'+i+'></span></div><input id=sq'+i+' type=range min='+minQ+' max='+maxQ+' step=0.01 value='+qs[i]+'>';"
             "slidersEl.appendChild(cell);const sg=cell.querySelector('#sg'+i);const sq=cell.querySelector('#sq'+i);const v=cell.querySelector('#v'+i);const qv=cell.querySelector('#qv'+i);const upd=()=>{gains[i]=parseFloat(sg.value);qs[i]=parseFloat(sq.value);v.textContent=gains[i].toFixed(1)+' dB';qv.textContent=qs[i].toFixed(2);draw();schedulePost();};sg.addEventListener('input',upd);sq.addEventListener('input',upd);upd();});}"
             "c.addEventListener('mousedown',e=>{if(!freqs.length)return;const r=c.getBoundingClientRect();const x=(e.clientX-r.left)*c.width/r.width;const y=(e.clientY-r.top)*c.height/r.height;let best=-1,bestD=1e9;freqs.forEach((f,i)=>{const dx=x-xOfF(f),dy=y-yOfDb(gains[i]);const d=dx*dx+dy*dy;if(d<bestD){bestD=d;best=i;}});if(bestD<400)drag=best;if(drag>=0){gains[drag]=Math.max(minGain,Math.min(maxGain,dbOfY(y)));const s=document.getElementById('sg'+drag);if(s)s.value=gains[drag];const v=document.getElementById('v'+drag);if(v)v.textContent=gains[drag].toFixed(1)+' dB';draw();schedulePost();}});"
             "window.addEventListener('mousemove',e=>{if(drag<0)return;const r=c.getBoundingClientRect();const y=(e.clientY-r.top)*c.height/r.height;gains[drag]=Math.max(minGain,Math.min(maxGain,dbOfY(y)));const s=document.getElementById('sg'+drag);if(s)s.value=gains[drag];const v=document.getElementById('v'+drag);if(v)v.textContent=gains[drag].toFixed(1)+' dB';draw();schedulePost();});"
             "window.addEventListener('mouseup',()=>{drag=-1;});"
-            "async function pollSpectrum(){try{const r=await fetch('/spectrum');if(r.ok){const j=await r.json();if(Array.isArray(j.bins))spec=j.bins;}}catch(e){}requestAnimationFrame(pollSpectrum);}"
-            "async function init(){try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;buildSliders();}}}catch(e){}draw();pollSpectrum();setInterval(draw,50);}init();"
+            "async function pollSpectrum(){try{const r=await fetch('/spectrum');if(r.ok){const j=await r.json();if(Array.isArray(j.preBins))specPre=j.preBins;if(Array.isArray(j.postBins))specPost=j.postBins;if(Array.isArray(j.bins)&&!specPost.length)specPost=j.bins;}}catch(e){}requestAnimationFrame(pollSpectrum);}"
+            "async function init(){try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;modes=Array.isArray(j.modes)?j.modes:freqs.map(f=>f<=2000?0:(f>16000?2:1));dynReduction=Array.isArray(j.dynamicReductionDB)?j.dynamicReductionDB:freqs.map(()=>0);minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;if(typeof j.dynamicAttack==='number')dyn.attack=j.dynamicAttack;if(typeof j.dynamicRelease==='number')dyn.release=j.dynamicRelease;if(typeof j.dynamicThreshold==='number')dyn.threshold=j.dynamicThreshold;if(typeof j.dynamicMaxReductionDB==='number')dyn.maxReductionDB=j.dynamicMaxReductionDB;if(typeof j.dynamicStrengthDB==='number')dyn.strengthDB=j.dynamicStrengthDB;if(typeof j.dynamicAttackMin==='number')dynRange.attackMin=j.dynamicAttackMin;if(typeof j.dynamicAttackMax==='number')dynRange.attackMax=j.dynamicAttackMax;if(typeof j.dynamicReleaseMin==='number')dynRange.releaseMin=j.dynamicReleaseMin;if(typeof j.dynamicReleaseMax==='number')dynRange.releaseMax=j.dynamicReleaseMax;if(typeof j.dynamicThresholdMin==='number')dynRange.thresholdMin=j.dynamicThresholdMin;if(typeof j.dynamicThresholdMax==='number')dynRange.thresholdMax=j.dynamicThresholdMax;if(typeof j.dynamicMaxReductionDBMin==='number')dynRange.maxReductionDBMin=j.dynamicMaxReductionDBMin;if(typeof j.dynamicMaxReductionDBMax==='number')dynRange.maxReductionDBMax=j.dynamicMaxReductionDBMax;if(typeof j.dynamicStrengthDBMin==='number')dynRange.strengthDBMin=j.dynamicStrengthDBMin;if(typeof j.dynamicStrengthDBMax==='number')dynRange.strengthDBMax=j.dynamicStrengthDBMax;buildSliders();buildDynamic();}}}catch(e){}if(!dynEl.children.length)buildDynamic();draw();pollSpectrum();setInterval(async()=>{try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.dynamicReductionDB))dynReduction=j.dynamicReductionDB;if(Array.isArray(j.modes))modes=j.modes;}}catch(e){}draw();},100);}init();"
             "</script></body></html>";
         send_http_response(clientFd, "text/html; charset=utf-8", page);
         return;
@@ -414,7 +578,7 @@ int main(void)
     }
 
     decoderConfig = ma_decoder_config_init(ma_format_f32, device.playback.channels, device.sampleRate);
-    result = ma_decoder_init_file("test.wav", &decoderConfig, &wavSource.decoder);
+    result = ma_decoder_init_file("1.wav", &decoderConfig, &wavSource.decoder);
     if (result != MA_SUCCESS)
     {
         printf("加载 test.wav 失败。\n");
