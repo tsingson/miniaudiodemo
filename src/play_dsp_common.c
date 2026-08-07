@@ -69,6 +69,19 @@ static float clampf(float v, float lo, float hi)
     return v;
 }
 
+static void update_low_crossfeed_coeff(play_dsp_state* state)
+{
+    float w = 2.0f * (float)M_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)state->sampleRate;
+    state->lowCrossfeedLpA = expf(-w);
+}
+
+static float low_crossfeed_lp_process(play_dsp_state* state, uint32_t ch, float x)
+{
+    float y = (1.0f - state->lowCrossfeedLpA) * x + state->lowCrossfeedLpA * state->lowCrossfeedLpState[ch];
+    state->lowCrossfeedLpState[ch] = y;
+    return y;
+}
+
 static void assign_band_modes(play_dsp_state* state)
 {
     for (int i = 0; i < EQ_BANDS; ++i)
@@ -210,6 +223,88 @@ static float goertzel_magnitude(const float* samples, int sampleCount, int k)
     return sqrtf(q1 * q1 + q2 * q2 - q1 * q2 * coeff);
 }
 
+static float goertzel_phase(const float* samples, int sampleCount, int k)
+{
+    float w = (2.0f * (float)M_PI * (float)k) / (float)sampleCount;
+    float coeff = 2.0f * cosf(w);
+    float q0 = 0.0f;
+    float q1 = 0.0f;
+    float q2 = 0.0f;
+    float real;
+    float imag;
+
+    for (int i = 0; i < sampleCount; ++i)
+    {
+        q0 = coeff * q1 - q2 + samples[i];
+        q2 = q1;
+        q1 = q0;
+    }
+
+    real = q1 - q2 * cosf(w);
+    imag = q2 * sinf(w);
+    return atan2f(imag, real);
+}
+
+static float wrap_pi(float x)
+{
+    while (x > (float)M_PI)
+    {
+        x -= 2.0f * (float)M_PI;
+    }
+    while (x < -(float)M_PI)
+    {
+        x += 2.0f * (float)M_PI;
+    }
+    return x;
+}
+
+static void update_phase_metrics(play_dsp_state* state)
+{
+    float phaseDiff[ANALYZER_BINS];
+
+    for (int i = 0; i < ANALYZER_BINS; ++i)
+    {
+        int k = state->binIndex[i];
+        float pPre = goertzel_phase(state->preSamples, ANALYZER_WINDOW, k);
+        float pPost = goertzel_phase(state->postSamples, ANALYZER_WINDOW, k);
+        float d = wrap_pi(pPost - pPre);
+
+        if (i > 0)
+        {
+            float prev = phaseDiff[i - 1];
+            while (d - prev > (float)M_PI)
+            {
+                d -= 2.0f * (float)M_PI;
+            }
+            while (d - prev < -(float)M_PI)
+            {
+                d += 2.0f * (float)M_PI;
+            }
+        }
+
+        phaseDiff[i] = d;
+        state->phaseDeltaDeg[i] = d * (180.0f / (float)M_PI);
+    }
+
+    for (int i = 0; i < ANALYZER_BINS; ++i)
+    {
+        int i0 = (i == 0) ? 0 : i - 1;
+        int i1 = (i == ANALYZER_BINS - 1) ? ANALYZER_BINS - 1 : i + 1;
+        float f0 = (float)state->binIndex[i0] * (float)state->sampleRate / (float)ANALYZER_WINDOW;
+        float f1 = (float)state->binIndex[i1] * (float)state->sampleRate / (float)ANALYZER_WINDOW;
+        float dp = phaseDiff[i1] - phaseDiff[i0];
+        float df = f1 - f0;
+        float gd = 0.0f;
+
+        if (df > 1e-6f)
+        {
+            gd = -dp / (2.0f * (float)M_PI * df);
+        }
+
+        state->groupDelayMs[i] = gd * 1000.0f;
+    }
+}
+
 static void analyze_bins_for_samples(play_dsp_state* state, const float* samples, float* outBins)
 {
 #ifdef USE_CMSIS_DSP
@@ -261,6 +356,11 @@ static void update_spectrum(play_dsp_state* state)
 {
     analyze_bins_for_samples(state, state->preSamples, state->preBins);
     analyze_bins_for_samples(state, state->postSamples, state->postBins);
+
+    if ((state->pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u)
+    {
+        update_phase_metrics(state);
+    }
 }
 
 int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
@@ -288,6 +388,9 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->dynamicThreshold = DYNAMIC_EQ_DEFAULT_THRESHOLD;
     state->dynamicMaxReductionDB = DYNAMIC_EQ_DEFAULT_MAX_REDUCTION_DB;
     state->dynamicStrengthDB = DYNAMIC_EQ_DEFAULT_STRENGTH_DB;
+    state->lowCrossfeedEnabled = 0u;
+    state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    update_low_crossfeed_coeff(state);
 
     assign_band_modes(state);
 
@@ -358,6 +461,42 @@ void play_dsp_set_dynamic_params(play_dsp_state* state,
     state->dynamicStrengthDB = clampf(strengthDB, DYNAMIC_EQ_MIN_STRENGTH_DB, DYNAMIC_EQ_MAX_STRENGTH_DB);
 }
 
+void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position)
+{
+    uint8_t pos = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    state->lowCrossfeedEnabled = enabled ? 1u : 0u;
+    state->lowCrossfeedPosition = pos;
+}
+
+void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, uint8_t* outPosition)
+{
+    if (outEnabled != NULL)
+    {
+        *outEnabled = state->lowCrossfeedEnabled ? 1 : 0;
+    }
+    if (outPosition != NULL)
+    {
+        *outPosition = state->lowCrossfeedPosition;
+    }
+}
+
+void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled)
+{
+    if (enabled)
+    {
+        state->pluginMask |= pluginBit;
+    }
+    else
+    {
+        state->pluginMask &= ~pluginBit;
+    }
+}
+
+uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state)
+{
+    return state->pluginMask;
+}
+
 void play_dsp_get_dynamic_params(const play_dsp_state* state,
                                  float* outAttack,
                                  float* outRelease,
@@ -393,6 +532,20 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
     {
         float monoIn = 0.0f;
         float monoOut = 0.0f;
+        float preCrossL = 0.0f;
+        float preCrossR = 0.0f;
+        float postCrossL = 0.0f;
+        float postCrossR = 0.0f;
+
+        if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
+        {
+            float inL = interleavedFrames[i * channels + 0];
+            float inR = interleavedFrames[i * channels + 1];
+            float lowL = low_crossfeed_lp_process(state, 0, inL);
+            float lowR = low_crossfeed_lp_process(state, 1, inR);
+            preCrossL = inL + PLAY_LOW_CROSSFEED_RATIO * lowR;
+            preCrossR = inR + PLAY_LOW_CROSSFEED_RATIO * lowL;
+        }
 
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
@@ -400,6 +553,18 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
             float in = inputSample;
 
             monoIn += inputSample;
+
+            if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
+            {
+                if (ch == 0u)
+                {
+                    in = preCrossL;
+                }
+                else if (ch == 1u)
+                {
+                    in = preCrossR;
+                }
+            }
 
             if (ch < MAX_CHANNELS)
             {
@@ -450,8 +615,29 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 }
             }
 
+            if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+            {
+                if (ch == 0u)
+                {
+                    float low = low_crossfeed_lp_process(state, 0, in);
+                    postCrossL = in;
+                    postCrossR = PLAY_LOW_CROSSFEED_RATIO * low;
+                }
+                else if (ch == 1u)
+                {
+                    float low = low_crossfeed_lp_process(state, 1, in);
+                    in += postCrossR;
+                    postCrossL += PLAY_LOW_CROSSFEED_RATIO * low;
+                }
+            }
+
             interleavedFrames[i * channels + ch] = in;
             monoOut += in;
+        }
+
+        if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+        {
+            interleavedFrames[i * channels + 0] = postCrossL;
         }
 
         monoIn /= (float)channels;
@@ -505,6 +691,22 @@ void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes,
         if (outReductionDB != NULL)
         {
             outReductionDB[i] = state->dynamicReductionDB[i];
+        }
+    }
+}
+
+void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs, int maxCount)
+{
+    int n = (maxCount < ANALYZER_BINS) ? maxCount : ANALYZER_BINS;
+    for (int i = 0; i < n; ++i)
+    {
+        if (outPhaseDeltaDeg != NULL)
+        {
+            outPhaseDeltaDeg[i] = state->phaseDeltaDeg[i];
+        }
+        if (outGroupDelayMs != NULL)
+        {
+            outGroupDelayMs[i] = state->groupDelayMs[i];
         }
     }
 }

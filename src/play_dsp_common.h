@@ -30,6 +30,16 @@
 #define DYNAMIC_EQ_MIN_STRENGTH_DB 1.0f
 #define DYNAMIC_EQ_MAX_STRENGTH_DB 36.0f
 
+#define PLAY_DSP_PLUGIN_PHASE_ANALYZER 0x01u
+#define PLAY_LOW_CROSSFEED_CUTOFF_HZ 150.0f
+#define PLAY_LOW_CROSSFEED_RATIO 0.30f
+
+typedef enum
+{
+    PLAY_CROSSFEED_PRE_EQ = 0,
+    PLAY_CROSSFEED_POST_EQ = 1
+} play_crossfeed_position;
+
 typedef enum
 {
     PLAY_EQ_MODE_LINEAR = 0,
@@ -54,6 +64,13 @@ typedef struct
     float dynamicThreshold;
     float dynamicMaxReductionDB;
     float dynamicStrengthDB;
+    uint32_t pluginMask;
+    uint8_t lowCrossfeedEnabled;
+    uint8_t lowCrossfeedPosition;
+    float lowCrossfeedLpA;
+    float lowCrossfeedLpState[MAX_CHANNELS];
+    float phaseDeltaDeg[ANALYZER_BINS];
+    float groupDelayMs[ANALYZER_BINS];
 
     double b0[EQ_BANDS];
     double b1[EQ_BANDS];
@@ -104,10 +121,15 @@ void play_dsp_get_dynamic_params(const play_dsp_state* state,
                                  float* outThreshold,
                                  float* outMaxReductionDB,
                                  float* outStrengthDB);
+void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position);
+void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, uint8_t* outPosition);
+void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled);
+uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state);
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels);
 void play_dsp_copy_bins(const play_dsp_state* state, float* outBins, int maxCount);
 void play_dsp_copy_spectrum(const play_dsp_state* state, float* outPreBins, float* outPostBins, int maxCount);
 void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes, float* outReductionDB, int maxCount);
+void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs, int maxCount);
 void play_dsp_copy_eq(const play_dsp_state* state, float* outFreqs, float* outGains, float* outQs, int maxCount);
 
 #endif

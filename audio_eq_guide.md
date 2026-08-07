@@ -4,6 +4,15 @@
 
 This project implements a hybrid 3-mode EQ pipeline in shared DSP code so both host prototype (play_macos) and MCU entry (play_mcu) use identical audio behavior.
 
+It also supports optional DSP plugins. The phase analyzer plugin can be enabled or disabled at runtime.
+
+It also supports optional low-frequency stereo crossfeed:
+
+- below 150 Hz low-pass content
+- add 30% of left low-band into right
+- add 30% of right low-band into left
+- processing position selectable: pre-EQ or post-EQ
+
 The three mode rules are frequency based:
 
 - Linear EQ: frequency <= 2 kHz
@@ -31,6 +40,8 @@ For each frame and each channel, processing is done band-by-band in this order:
 3. Output write-back
 
 The spectrum analyzer uses the post-EQ signal, so Web visualization reflects the final processed output.
+
+In current implementation, both pre-EQ and post-EQ analyzer curves are exported to Web UI.
 
 ## Mode Implementation Details
 
@@ -142,6 +153,18 @@ Public APIs:
 - `play_dsp_set_eq_params(...)`
 - `play_dsp_set_dynamic_params(...)`
 - `play_dsp_get_dynamic_params(...)`
+- `play_dsp_set_plugin_enabled(...)`
+- `play_dsp_get_plugin_mask(...)`
+- `play_dsp_copy_phase_metrics(...)`
+
+Plugin bit definitions:
+
+- `PLAY_DSP_PLUGIN_PHASE_ANALYZER` (phase/group-delay analysis)
+
+Low-crossfeed control APIs:
+
+- `play_dsp_set_low_crossfeed(...)`
+- `play_dsp_get_low_crossfeed(...)`
 
 ## Dynamic Parameter Ranges
 
@@ -157,14 +180,29 @@ Defined in `src/play_dsp_common.h`:
 
 ## Web API Contract
 
+### GET /spectrum
+
+Returns:
+
+- `sampleRate`
+- `preBins` (EQ before)
+- `postBins` (EQ after)
+- `phasePluginEnabled` (boolean)
+- `phaseDeltaDeg` (array, only meaningful when plugin is enabled)
+- `groupDelayMs` (array, only meaningful when plugin is enabled)
+
 ### GET /eq
 
 Returns:
 
 - static EQ limits and arrays (`minGain`, `maxGain`, `minQ`, `maxQ`, `freqs`, `gains`, `qs`)
 - sample rate (`sampleRate`)
+- plugin state (`phasePluginEnabled`)
+- low-crossfeed state (`lowCrossfeedEnabled`, `lowCrossfeedPosition`)
+- low-crossfeed constants (`lowCrossfeedCutoffHz`, `lowCrossfeedRatio`)
 - dynamic parameter current values
 - dynamic parameter min/max limits
+- dynamic curve metadata (`modes`, `dynamicReductionDB`)
 
 ### POST /eq
 
@@ -177,14 +215,21 @@ Accepts partial update payload. Any of the following fields may be present:
 - `dynamicThreshold`: float
 - `dynamicMaxReductionDB`: float
 - `dynamicStrengthDB`: float
+- `phasePluginEnabled`: float-like boolean (`0` or `1`)
+- `lowCrossfeedEnabled`: float-like boolean (`0` or `1`)
+- `lowCrossfeedPosition`: `0` for pre-EQ, `1` for post-EQ
 
 Updates are applied atomically under DSP mutex in `play_macos`.
+
+When `phasePluginEnabled` is `0`, phase metrics are not updated in DSP loop (lower overhead).
 
 ## Frontend Interaction
 
 The Web UI now has:
 
 - Spectrum and EQ canvas
+- Pre-EQ and Post-EQ curves
+- Dynamic reduction continuous interpolation curve
 - Per-band gain and Q controls
 - Per-band mode badge (`Linear`, `Dynamic`, `Normal`)
 - Dynamic EQ control row with five sliders:
@@ -193,8 +238,20 @@ The Web UI now has:
   - Threshold
   - Max Red (dB)
   - Strength (dB)
+- A plugin toggle control: `Phase Plugin` (`ON` / `OFF`)
+- A low-crossfeed toggle control: `Low Crossfeed` (`ON` / `OFF`)
+- A low-crossfeed placement selector: `Pre EQ` / `Post EQ`
 
 Changing any dynamic slider sends real-time POST updates and immediately affects playback.
+
+Changing Phase Plugin toggle sends real-time POST update and controls whether phase/group-delay analysis is running.
+
+Changing Low Crossfeed toggle or placement sends real-time POST update and controls whether low-band stereo blending happens before or after EQ.
+
+Note:
+
+- The purple Estimated EQ curve is still a client-side approximation based on biquad equations.
+- Because low-frequency bands use TPT-SVF and dynamic processing can attenuate output, estimated curve and measured post curve may differ.
 
 ## Suggested Tuning Workflow
 
@@ -209,9 +266,77 @@ Changing any dynamic slider sends real-time POST updates and immediately affects
    - Max Reduction: 12 dB
    - Strength: 18 dB
 
+## Phase Metrics Interpretation Guide
+
+This section helps interpret `phaseDeltaDeg` and `groupDelayMs` returned by `GET /spectrum` when `Phase Plugin` is enabled.
+
+### 1) What to focus on first
+
+- Prefer `groupDelayMs` as the primary practical metric.
+- Use `phaseDeltaDeg` as a secondary trend indicator.
+- Judge by frequency region, not by one global number.
+
+### 2) Practical risk levels (rule-of-thumb)
+
+For low-frequency region (20 Hz to 200 Hz):
+
+- Low risk: group delay <= 2 ms
+- Medium risk: 2 ms to 6 ms
+- High risk: > 6 ms
+
+For low-mid region (200 Hz to 1 kHz):
+
+- Low risk: group delay <= 1.5 ms
+- Medium risk: 1.5 ms to 4 ms
+- High risk: > 4 ms
+
+For high region (> 1 kHz):
+
+- group delay is usually less audible for weight/punch
+- prioritize tonal quality and harshness control over strict delay minimization
+
+### 3) Audible symptoms mapping
+
+- Excessive low-frequency group delay:
+  - bass feels soft or laggy
+  - kick transient loses impact
+- Strongly uneven phase trend around crossover-like areas:
+  - image focus may feel less stable
+  - transients can feel smeared
+
+### 4) How to decide if it is a real problem
+
+Use A/B steps:
+
+1. Toggle `Phase Plugin` ON, observe `groupDelayMs` trend.
+2. Keep same loudness, bypass EQ changes that create peaks in low-band delay.
+3. If delay peaks drop and punch returns, treat as confirmed phase-related issue.
+
+### 5) Fast mitigation actions
+
+If low-end delay is too high:
+
+- reduce low-band boost magnitude first
+- lower Q on low-frequency bands (wider, gentler shaping)
+- avoid stacking multiple adjacent low boosts
+
+If dynamic section causes instability in upper range:
+
+- increase dynamic threshold slightly
+- reduce dynamic strength or max reduction
+- slow attack and/or increase release moderately
+
+### 6) Notes on this project implementation
+
+- `phaseDeltaDeg` is computed as post-EQ minus pre-EQ phase at analyzer bins.
+- `groupDelayMs` is numerically derived from phase slope versus frequency.
+- Metrics are meaningful for trend comparison and tuning direction; do not treat them as laboratory-grade absolute measurements.
+
 ## MCU Notes
 
 `play_mcu` uses the same shared DSP implementation, so these three modes and dynamic parameters are already available on MCU side.
+
+The plugin framework is shared as well. MCU side can enable/disable plugins by calling `play_dsp_set_plugin_enabled(...)`.
 
 To control parameters on device, implement `play_mcu_poll_eq(...)` and pass updated gains/Q values each block. If needed, add an MCU control path that calls `play_dsp_set_dynamic_params(...)` with host-provided values.
 
