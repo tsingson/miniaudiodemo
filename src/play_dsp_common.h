@@ -11,10 +11,11 @@
 #define ANALYZER_BINS 48
 #define MAX_CHANNELS 2
 #define EQ_BANDS 8
-#define EQ_MIN_GAIN_DB -24.0f
-#define EQ_MAX_GAIN_DB 24.0f
+#define EQ_MIN_GAIN_DB -36.0f
+#define EQ_MAX_GAIN_DB 36.0f
 #define EQ_MIN_Q 0.3f
 #define EQ_MAX_Q 12.0f
+#define EQ_LOW_SVF_MAX_HZ 1000.0f
 
 #define EQ_LINEAR_MAX_HZ 2000.0f
 #define EQ_DYNAMIC_MAX_HZ 16000.0f
@@ -22,10 +23,10 @@
 #define DYNAMIC_EQ_MAX_ATTACK 0.50f
 #define DYNAMIC_EQ_MIN_RELEASE 0.005f
 #define DYNAMIC_EQ_MAX_RELEASE 0.30f
-#define DYNAMIC_EQ_MIN_THRESHOLD 0.02f
+#define DYNAMIC_EQ_MIN_THRESHOLD 0.01f
 #define DYNAMIC_EQ_MAX_THRESHOLD 1.00f
 #define DYNAMIC_EQ_MIN_MAX_REDUCTION_DB 0.0f
-#define DYNAMIC_EQ_MAX_MAX_REDUCTION_DB 24.0f
+#define DYNAMIC_EQ_MAX_MAX_REDUCTION_DB 36.0f
 #define DYNAMIC_EQ_MIN_STRENGTH_DB 1.0f
 #define DYNAMIC_EQ_MAX_STRENGTH_DB 36.0f
 
@@ -45,6 +46,7 @@ typedef struct
     float gainsDB[EQ_BANDS];
     float qValues[EQ_BANDS];
     uint8_t bandModes[EQ_BANDS];
+    uint8_t bandUseSVF[EQ_BANDS];
     float dynamicEnv[EQ_BANDS][MAX_CHANNELS];
     float dynamicReductionDB[EQ_BANDS];
     float dynamicAttack;
@@ -58,6 +60,13 @@ typedef struct
     double b2[EQ_BANDS];
     double a1[EQ_BANDS];
     double a2[EQ_BANDS];
+
+    double svfG[EQ_BANDS];
+    double svfK[EQ_BANDS];
+    double svfA[EQ_BANDS];
+    double svfH[EQ_BANDS];
+    double svfIc1eq[EQ_BANDS][MAX_CHANNELS];
+    double svfIc2eq[EQ_BANDS][MAX_CHANNELS];
 
     double x1[EQ_BANDS][MAX_CHANNELS];
     double x2[EQ_BANDS][MAX_CHANNELS];

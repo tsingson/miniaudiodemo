@@ -119,6 +119,22 @@ static void rebuild_eq(play_dsp_state* state)
             gainDB = 20.0 * log10((double)linearAmplitude);
         }
 
+        state->bandUseSVF[i] = (frequency <= (double)EQ_LOW_SVF_MAX_HZ) ? 1u : 0u;
+
+        if (state->bandUseSVF[i])
+        {
+            double g = tan(M_PI * frequency / (double)state->sampleRate);
+            double k = 1.0 / q;
+            double aBell = pow(10.0, gainDB / 40.0);
+            double h = 1.0 / (1.0 + g * (g + k));
+
+            state->svfG[i] = g;
+            state->svfK[i] = k;
+            state->svfA[i] = aBell;
+            state->svfH[i] = h;
+            continue;
+        }
+
         a = pow(10.0, gainDB / 40.0);
         w0 = 2.0 * M_PI * frequency / (double)state->sampleRate;
 #ifdef USE_CMSIS_DSP
@@ -143,6 +159,30 @@ static void rebuild_eq(play_dsp_state* state)
         state->a1[i] = a1 / a0;
         state->a2[i] = a2 / a0;
     }
+}
+
+static float process_tpt_svf_band(play_dsp_state* state, int band, uint32_t ch, float in)
+{
+    double g = state->svfG[band];
+    double k = state->svfK[band];
+    double aBell = state->svfA[band];
+    double h = state->svfH[band];
+    double ic1eq = state->svfIc1eq[band][ch];
+    double ic2eq = state->svfIc2eq[band][ch];
+    double v1;
+    double v2;
+    double bp;
+    double out;
+
+    v1 = h * (ic1eq + g * ((double)in - ic2eq));
+    v2 = ic2eq + g * v1;
+    bp = v1;
+    out = (double)in + k * (aBell - 1.0) * bp;
+
+    state->svfIc1eq[band][ch] = 2.0 * v1 - ic1eq;
+    state->svfIc2eq[band][ch] = 2.0 * v2 - ic2eq;
+
+    return (float)out;
 }
 
 static float goertzel_magnitude(const float* samples, int sampleCount, int k)
@@ -365,8 +405,22 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
             {
                 for (int band = 0; band < EQ_BANDS; ++band)
                 {
-                    double out = state->b0[band] * in + state->b1[band] * state->x1[band][ch] + state->b2[band] * state->x2[band][ch]
-                               - state->a1[band] * state->y1[band][ch] - state->a2[band] * state->y2[band][ch];
+                    double out;
+
+                    if (state->bandUseSVF[band])
+                    {
+                        out = process_tpt_svf_band(state, band, ch, in);
+                    }
+                    else
+                    {
+                        out = state->b0[band] * in + state->b1[band] * state->x1[band][ch] + state->b2[band] * state->x2[band][ch]
+                            - state->a1[band] * state->y1[band][ch] - state->a2[band] * state->y2[band][ch];
+
+                        state->x2[band][ch] = state->x1[band][ch];
+                        state->x1[band][ch] = in;
+                        state->y2[band][ch] = state->y1[band][ch];
+                        state->y1[band][ch] = out;
+                    }
 
                     if (state->bandModes[band] == (uint8_t)PLAY_EQ_MODE_DYNAMIC)
                     {
@@ -392,10 +446,6 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                         state->dynamicReductionDB[band] = state->dynamicReductionDB[band] * 0.88f + reductionDb * 0.12f;
                     }
 
-                    state->x2[band][ch] = state->x1[band][ch];
-                    state->x1[band][ch] = in;
-                    state->y2[band][ch] = state->y1[band][ch];
-                    state->y1[band][ch] = out;
                     in = (float)out;
                 }
             }

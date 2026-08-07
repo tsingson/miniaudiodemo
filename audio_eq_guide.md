@@ -10,17 +10,24 @@ The three mode rules are frequency based:
 - Dynamic EQ: 2 kHz < frequency <= 16 kHz
 - Normal EQ: frequency > 16 kHz
 
+For low-frequency stability and musical behavior, the project also enables TPT-SVF for low EQ bands:
+
+- TPT-SVF band processing: frequency <= 1 kHz
+
 These thresholds are defined in `src/play_dsp_common.h`:
 
 - `EQ_LINEAR_MAX_HZ` = 2000.0f
 - `EQ_DYNAMIC_MAX_HZ` = 16000.0f
+- `EQ_LOW_SVF_MAX_HZ` = 1000.0f
 
 ## Signal Path
 
 For each frame and each channel, processing is done band-by-band in this order:
 
-1. Biquad peaking EQ core (all bands)
-2. Dynamic post-control (only dynamic bands)
+1. Filter stage (hybrid):
+  - TPT-SVF bell path for low-frequency bands (<= 1 kHz)
+  - Biquad peaking path for other bands (> 1 kHz)
+2. Dynamic post-control (only dynamic-mode bands)
 3. Output write-back
 
 The spectrum analyzer uses the post-EQ signal, so Web visualization reflects the final processed output.
@@ -29,7 +36,10 @@ The spectrum analyzer uses the post-EQ signal, so Web visualization reflects the
 
 ### 1) Linear EQ (<= 2 kHz)
 
-Linear EQ still uses the same peaking biquad structure, but the user dB gain is remapped through a linear amplitude interpretation before filter coefficients are built.
+Linear EQ uses linear gain interpretation before coefficient build, then goes through the active filter topology of that band:
+
+- If band frequency <= 1 kHz: TPT-SVF bell section
+- If band frequency > 1 kHz: peaking biquad section
 
 Implementation idea:
 
@@ -42,6 +52,39 @@ Implementation idea:
   - `effectiveGainDB = 20 * log10(linearAmplitude)`
 
 This makes low-mid adjustment feel smoother and more proportional for broad tonal shaping.
+
+### 1.1) TPT-SVF for Low-Frequency EQ (<= 1 kHz)
+
+Low-frequency bands are processed with a Topology Preserving Transform State Variable Filter (TPT-SVF), configured as a bell-style section.
+
+Why TPT-SVF here:
+
+- Better numerical behavior at low frequencies
+- Smooth parameter response while adjusting gain/Q
+- Good fit for future embedded/MCU portability
+
+Core per-band parameters:
+
+- `g = tan(pi * f0 / fs)`
+- `k = 1 / Q`
+- `A = 10^(gainDB / 40)`
+- `h = 1 / (1 + g * (g + k))`
+
+State variables (per band, per channel):
+
+- `ic1eq`
+- `ic2eq`
+
+Sample processing shape:
+
+- `v1 = h * (ic1eq + g * (x - ic2eq))`
+- `v2 = ic2eq + g * v1`
+- `bp = v1`
+- `y = x + k * (A - 1) * bp`
+- `ic1eq = 2 * v1 - ic1eq`
+- `ic2eq = 2 * v2 - ic2eq`
+
+In code, low-band selection is done by `bandFreq <= EQ_LOW_SVF_MAX_HZ`, with a per-band switch (`bandUseSVF`) that chooses SVF vs biquad at runtime.
 
 ### 2) Dynamic EQ (2 kHz to 16 kHz)
 
@@ -87,6 +130,12 @@ Dynamic parameters are stored in state:
 - `dynamicThreshold`
 - `dynamicMaxReductionDB`
 - `dynamicStrengthDB`
+
+TPT-SVF-related state is also stored per band/per channel:
+
+- `bandUseSVF`
+- `svfG`, `svfK`, `svfA`, `svfH`
+- `svfIc1eq`, `svfIc2eq`
 
 Public APIs:
 
@@ -150,6 +199,7 @@ Changing any dynamic slider sends real-time POST updates and immediately affects
 ## Suggested Tuning Workflow
 
 1. Shape low end and body using <= 2 kHz bands (Linear mode).
+  - Note: <= 1 kHz bands are internally processed with TPT-SVF.
 2. Add presence/definition in 2 kHz to 16 kHz bands (Dynamic mode).
 3. Use > 16 kHz band for air, then reduce dynamic threshold only if upper-band harshness appears.
 4. Start dynamic defaults from:
