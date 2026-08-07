@@ -65,6 +65,7 @@ typedef struct
     float dynamicMaxReductionDB;
     float dynamicStrengthDB;
     uint32_t pluginMask;
+    uint8_t bypassEnabled;
     uint8_t lowCrossfeedEnabled;
     uint8_t lowCrossfeedPosition;
     float lowCrossfeedLpA;
@@ -121,6 +122,8 @@ void play_dsp_get_dynamic_params(const play_dsp_state* state,
                                  float* outThreshold,
                                  float* outMaxReductionDB,
                                  float* outStrengthDB);
+void play_dsp_set_bypass(play_dsp_state* state, int enabled);
+int play_dsp_get_bypass(const play_dsp_state* state);
 void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position);
 void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, uint8_t* outPosition);
 void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled);

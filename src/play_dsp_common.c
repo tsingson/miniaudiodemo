@@ -388,6 +388,7 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->dynamicThreshold = DYNAMIC_EQ_DEFAULT_THRESHOLD;
     state->dynamicMaxReductionDB = DYNAMIC_EQ_DEFAULT_MAX_REDUCTION_DB;
     state->dynamicStrengthDB = DYNAMIC_EQ_DEFAULT_STRENGTH_DB;
+    state->bypassEnabled = 0u;
     state->lowCrossfeedEnabled = 0u;
     state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     update_low_crossfeed_coeff(state);
@@ -459,6 +460,16 @@ void play_dsp_set_dynamic_params(play_dsp_state* state,
     state->dynamicThreshold = clampf(threshold, DYNAMIC_EQ_MIN_THRESHOLD, DYNAMIC_EQ_MAX_THRESHOLD);
     state->dynamicMaxReductionDB = clampf(maxReductionDB, DYNAMIC_EQ_MIN_MAX_REDUCTION_DB, DYNAMIC_EQ_MAX_MAX_REDUCTION_DB);
     state->dynamicStrengthDB = clampf(strengthDB, DYNAMIC_EQ_MIN_STRENGTH_DB, DYNAMIC_EQ_MAX_STRENGTH_DB);
+}
+
+void play_dsp_set_bypass(play_dsp_state* state, int enabled)
+{
+    state->bypassEnabled = enabled ? 1u : 0u;
+}
+
+int play_dsp_get_bypass(const play_dsp_state* state)
+{
+    return state->bypassEnabled ? 1 : 0;
 }
 
 void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position)
@@ -537,7 +548,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
         float postCrossL = 0.0f;
         float postCrossR = 0.0f;
 
-        if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
+        if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
+            && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
         {
             float inL = interleavedFrames[i * channels + 0];
             float inR = interleavedFrames[i * channels + 1];
@@ -554,7 +566,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
 
             monoIn += inputSample;
 
-            if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
+            if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
+                && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
             {
                 if (ch == 0u)
                 {
@@ -566,7 +579,7 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 }
             }
 
-            if (ch < MAX_CHANNELS)
+            if (!state->bypassEnabled && ch < MAX_CHANNELS)
             {
                 for (int band = 0; band < EQ_BANDS; ++band)
                 {
@@ -615,7 +628,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 }
             }
 
-            if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+            if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
+                && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
             {
                 if (ch == 0u)
                 {
@@ -635,7 +649,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
             monoOut += in;
         }
 
-        if (state->lowCrossfeedEnabled && channels >= 2u && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+        if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
+            && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
         {
             interleavedFrames[i * channels + 0] = postCrossL;
         }

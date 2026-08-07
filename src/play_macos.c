@@ -311,6 +311,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
         float dynamicThreshold;
         float dynamicMaxReductionDB;
         float dynamicStrengthDB;
+        int bypassEnabled;
         int lowCrossfeedEnabled;
         uint8_t lowCrossfeedPosition;
         uint32_t pluginMask;
@@ -325,17 +326,19 @@ static void handle_http_request(http_server_state* http, int clientFd)
                                     &dynamicThreshold,
                                     &dynamicMaxReductionDB,
                                     &dynamicStrengthDB);
+        bypassEnabled = play_dsp_get_bypass(&http->app->dsp);
         play_dsp_get_low_crossfeed(&http->app->dsp, &lowCrossfeedEnabled, &lowCrossfeedPosition);
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
-               "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
+               "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
                            EQ_MIN_GAIN_DB,
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
                            EQ_MAX_Q,
                            http->app->dsp.sampleRate,
                    ((pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u) ? "true" : "false",
+               bypassEnabled ? "true" : "false",
                lowCrossfeedEnabled ? "true" : "false",
                (unsigned)lowCrossfeedPosition,
                PLAY_LOW_CROSSFEED_CUTOFF_HZ,
@@ -397,6 +400,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
         float dynamicMaxReductionDB;
         float dynamicStrengthDB;
         float phasePluginEnabledValue;
+        float bypassEnabledValue;
         float lowCrossfeedEnabledValue;
         float lowCrossfeedPositionValue;
         int gainCount;
@@ -407,6 +411,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
         bool hasDynamicMaxReductionDB;
         bool hasDynamicStrengthDB;
         bool hasPhasePluginEnabled;
+        bool hasBypassEnabled;
         bool hasLowCrossfeedEnabled;
         bool hasLowCrossfeedPosition;
         bool hasAnyDynamic;
@@ -426,11 +431,13 @@ static void handle_http_request(http_server_state* http, int clientFd)
         hasDynamicMaxReductionDB = parse_float_value_from_json(bodyStart, "\"dynamicMaxReductionDB\"", &dynamicMaxReductionDB);
         hasDynamicStrengthDB = parse_float_value_from_json(bodyStart, "\"dynamicStrengthDB\"", &dynamicStrengthDB);
         hasPhasePluginEnabled = parse_float_value_from_json(bodyStart, "\"phasePluginEnabled\"", &phasePluginEnabledValue);
+        hasBypassEnabled = parse_float_value_from_json(bodyStart, "\"bypassEnabled\"", &bypassEnabledValue);
         hasLowCrossfeedEnabled = parse_float_value_from_json(bodyStart, "\"lowCrossfeedEnabled\"", &lowCrossfeedEnabledValue);
         hasLowCrossfeedPosition = parse_float_value_from_json(bodyStart, "\"lowCrossfeedPosition\"", &lowCrossfeedPositionValue);
         hasAnyDynamic = hasDynamicAttack || hasDynamicRelease || hasDynamicThreshold || hasDynamicMaxReductionDB || hasDynamicStrengthDB;
 
-        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasLowCrossfeedEnabled && !hasLowCrossfeedPosition)
+        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasBypassEnabled && !hasLowCrossfeedEnabled
+            && !hasLowCrossfeedPosition)
         {
             send_http_response(clientFd, "application/json", "{\"ok\":false,\"reason\":\"invalid eq payload\"}");
             return;
@@ -493,6 +500,11 @@ static void handle_http_request(http_server_state* http, int clientFd)
                                         (phasePluginEnabledValue >= 0.5f) ? 1 : 0);
         }
 
+        if (hasBypassEnabled)
+        {
+            play_dsp_set_bypass(&http->app->dsp, (bypassEnabledValue >= 0.5f) ? 1 : 0);
+        }
+
         if (hasLowCrossfeedEnabled || hasLowCrossfeedPosition)
         {
             int currentEnabled = 0;
@@ -530,11 +542,11 @@ static void handle_http_request(http_server_state* http, int clientFd)
             ".mode{font-size:10px;padding:1px 6px;border-radius:999px;background:#1f2937;color:#93c5fd;margin-left:6px;letter-spacing:.2px;}"
             ".qval{font-size:12px;color:#fca5a5}.row{display:flex;justify-content:space-between;align-items:center}"
             "@media(max-width:900px){.dyn{grid-template-columns:repeat(2,minmax(0,1fr));}.sliders{grid-template-columns:repeat(2,minmax(0,1fr));}}</style></head>"
-            "<body><div class='wrap'><h1>实时频谱 + 多段 EQ</h1><div class='sub'>拖拽橙色控制点或下方滑块，实时改变播放 EQ</div>"
+            "<body><div class='wrap'><h1>实时频谱 + 多段 EQ</h1><div class='sub'>拖拽橙色控制点或下方滑块，实时改变播放 EQ <label style='margin-left:12px;display:inline-block;'><input id='bp' type='checkbox'> Bypass DSP</label> <span id='bpv' class='val'>OFF</span></div>"
             "<div class='panel'><canvas id='c' width='1000' height='400'></canvas><div id='dyn' class='dyn'></div><div id='sliders' class='sliders'></div></div></div>"
             "<script>const c=document.getElementById('c');const g=c.getContext('2d');const slidersEl=document.getElementById('sliders');"
             "const dynEl=document.getElementById('dyn');"
-            "let specPre=[];let specPost=[];let phaseDelta=[];let groupDelay=[];let phaseEnabled=false;let lowCrossfeedEnabled=false;let lowCrossfeedPosition=0;let freqs=[];let gains=[];let qs=[];let modes=[];let dynReduction=[];let minGain=-12,maxGain=12,minQ=.3,maxQ=4,sampleRate=48000;"
+            "let specPre=[];let specPost=[];let phaseDelta=[];let groupDelay=[];let phaseEnabled=false;let bypassEnabled=false;let lowCrossfeedEnabled=false;let lowCrossfeedPosition=0;let freqs=[];let gains=[];let qs=[];let modes=[];let dynReduction=[];let minGain=-12,maxGain=12,minQ=.3,maxQ=4,sampleRate=48000;"
             "let dyn={attack:.12,release:.02,threshold:.18,maxReductionDB:12,strengthDB:18};"
             "let dynRange={attackMin:.01,attackMax:.5,releaseMin:.005,releaseMax:.3,thresholdMin:.02,thresholdMax:1,maxReductionDBMin:0,maxReductionDBMax:24,strengthDBMin:1,strengthDBMax:36};"
             "let drag=-1;let lastPost=0;"
@@ -564,7 +576,9 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "if(freqs.length&&gains.length&&qs.length){const rp=[];for(let i=0;i<140;i++){const t=i/139;const f=fMin*Math.pow(fMax/fMin,t);const db=Math.max(minGain,Math.min(maxGain,eqResponseDb(f)));rp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(rp,'#e879f9',2.6);}"
             "if(freqs.length&&gains.length){const ep=freqs.map((f,i)=>({x:xOfF(f),y:yOfDb(gains[i]),f}));splinePath(ep,'#fb923c',3);"
             "ep.forEach(p=>{g.fillStyle='#f59e0b';g.beginPath();g.arc(p.x,p.y,6,0,Math.PI*2);g.fill();g.strokeStyle='#fed7aa';g.lineWidth=1;g.stroke();g.fillStyle='#ffe7cf';g.fillText((p.f>=1000?(p.f/1000).toFixed(p.f%1000?1:0)+'k':p.f)+'Hz',p.x-14,p.y-10);});}}"
-            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs,dynamicAttack:dyn.attack,dynamicRelease:dyn.release,dynamicThreshold:dyn.threshold,dynamicMaxReductionDB:dyn.maxReductionDB,dynamicStrengthDB:dyn.strengthDB,phasePluginEnabled:phaseEnabled?1:0,lowCrossfeedEnabled:lowCrossfeedEnabled?1:0,lowCrossfeedPosition:lowCrossfeedPosition})}).catch(()=>{});}"
+            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs,dynamicAttack:dyn.attack,dynamicRelease:dyn.release,dynamicThreshold:dyn.threshold,dynamicMaxReductionDB:dyn.maxReductionDB,dynamicStrengthDB:dyn.strengthDB,phasePluginEnabled:phaseEnabled?1:0,bypassEnabled:bypassEnabled?1:0,lowCrossfeedEnabled:lowCrossfeedEnabled?1:0,lowCrossfeedPosition:lowCrossfeedPosition})}).catch(()=>{});}"
+            "function syncBypassUi(){const b=document.getElementById('bp');const v=document.getElementById('bpv');if(b)b.checked=!!bypassEnabled;if(v)v.textContent=bypassEnabled?'ON':'OFF';}"
+            "function bindBypassUi(){const b=document.getElementById('bp');if(!b)return;b.addEventListener('change',()=>{bypassEnabled=!!b.checked;syncBypassUi();schedulePost();});syncBypassUi();}"
             "function buildDynamic(){const items=[{key:'attack',label:'Dyn Attack',min:dynRange.attackMin,max:dynRange.attackMax,step:0.001,digits:3},{key:'release',label:'Dyn Release',min:dynRange.releaseMin,max:dynRange.releaseMax,step:0.001,digits:3},{key:'threshold',label:'Threshold',min:dynRange.thresholdMin,max:dynRange.thresholdMax,step:0.005,digits:3},{key:'maxReductionDB',label:'Max Red (dB)',min:dynRange.maxReductionDBMin,max:dynRange.maxReductionDBMax,step:0.1,digits:1},{key:'strengthDB',label:'Strength (dB)',min:dynRange.strengthDBMin,max:dynRange.strengthDBMax,step:0.1,digits:1}];dynEl.innerHTML='';const phaseCell=document.createElement('div');phaseCell.className='cell';phaseCell.innerHTML='<div class=row><label>Phase Plugin</label><span class=val id=pv>'+(phaseEnabled?'ON':'OFF')+'</span></div><input id=pe type=checkbox '+(phaseEnabled?'checked':'')+'>';dynEl.appendChild(phaseCell);const pe=phaseCell.querySelector('#pe');const pv=phaseCell.querySelector('#pv');const upPhase=()=>{phaseEnabled=!!pe.checked;pv.textContent=phaseEnabled?'ON':'OFF';schedulePost();};pe.addEventListener('change',upPhase);const crossCell=document.createElement('div');crossCell.className='cell';crossCell.innerHTML='<div class=row><label>Low Crossfeed</label><span class=val id=cv>'+(lowCrossfeedEnabled?'ON':'OFF')+'</span></div><input id=ce type=checkbox '+(lowCrossfeedEnabled?'checked':'')+'><div class=row><label>Position</label><span class=val id=cpv>'+(lowCrossfeedPosition? 'Post EQ':'Pre EQ')+'</span></div><select id=cp><option value=0'+(lowCrossfeedPosition===0?' selected':'')+'>Pre EQ</option><option value=1'+(lowCrossfeedPosition===1?' selected':'')+'>Post EQ</option></select>';dynEl.appendChild(crossCell);const ce=crossCell.querySelector('#ce');const cv=crossCell.querySelector('#cv');const cp=crossCell.querySelector('#cp');const cpv=crossCell.querySelector('#cpv');const upCross=()=>{lowCrossfeedEnabled=!!ce.checked;lowCrossfeedPosition=parseInt(cp.value,10)||0;cv.textContent=lowCrossfeedEnabled?'ON':'OFF';cpv.textContent=lowCrossfeedPosition?'Post EQ':'Pre EQ';schedulePost();};ce.addEventListener('change',upCross);cp.addEventListener('change',upCross);items.forEach(it=>{const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<div class=row><label>'+it.label+'</label><span class=val id=dv_'+it.key+'></span></div><input id=ds_'+it.key+' type=range min='+it.min+' max='+it.max+' step='+it.step+' value='+dyn[it.key]+'>';dynEl.appendChild(cell);const s=cell.querySelector('#ds_'+it.key);const v=cell.querySelector('#dv_'+it.key);const upd=()=>{dyn[it.key]=parseFloat(s.value);v.textContent=dyn[it.key].toFixed(it.digits);schedulePost();};s.addEventListener('input',upd);upd();});}"
             "function buildSliders(){slidersEl.innerHTML='';freqs.forEach((f,i)=>{const cell=document.createElement('div');cell.className='cell';"
             "cell.innerHTML='<div class=row><label>'+ (f>=1000?(f/1000).toFixed(f%1000?1:0)+'k':f) +'Hz <span class=mode>'+modeText(modes[i],f)+'</span></label><span class=val id=v'+i+'></span></div><input id=sg'+i+' type=range min='+minGain+' max='+maxGain+' step=0.1 value='+gains[i]+'><div class=row><label>Q</label><span class=qval id=qv'+i+'></span></div><input id=sq'+i+' type=range min='+minQ+' max='+maxQ+' step=0.01 value='+qs[i]+'>';"
@@ -573,7 +587,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "window.addEventListener('mousemove',e=>{if(drag<0)return;const r=c.getBoundingClientRect();const y=(e.clientY-r.top)*c.height/r.height;gains[drag]=Math.max(minGain,Math.min(maxGain,dbOfY(y)));const s=document.getElementById('sg'+drag);if(s)s.value=gains[drag];const v=document.getElementById('v'+drag);if(v)v.textContent=gains[drag].toFixed(1)+' dB';draw();schedulePost();});"
             "window.addEventListener('mouseup',()=>{drag=-1;});"
             "async function pollSpectrum(){try{const r=await fetch('/spectrum');if(r.ok){const j=await r.json();if(Array.isArray(j.preBins))specPre=j.preBins;if(Array.isArray(j.postBins))specPost=j.postBins;if(Array.isArray(j.phaseDeltaDeg))phaseDelta=j.phaseDeltaDeg;if(Array.isArray(j.groupDelayMs))groupDelay=j.groupDelayMs;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(Array.isArray(j.bins)&&!specPost.length)specPost=j.bins;}}catch(e){}requestAnimationFrame(pollSpectrum);}"
-            "async function init(){try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;modes=Array.isArray(j.modes)?j.modes:freqs.map(f=>f<=2000?0:(f>16000?2:1));dynReduction=Array.isArray(j.dynamicReductionDB)?j.dynamicReductionDB:freqs.map(()=>0);minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);if(typeof j.dynamicAttack==='number')dyn.attack=j.dynamicAttack;if(typeof j.dynamicRelease==='number')dyn.release=j.dynamicRelease;if(typeof j.dynamicThreshold==='number')dyn.threshold=j.dynamicThreshold;if(typeof j.dynamicMaxReductionDB==='number')dyn.maxReductionDB=j.dynamicMaxReductionDB;if(typeof j.dynamicStrengthDB==='number')dyn.strengthDB=j.dynamicStrengthDB;if(typeof j.dynamicAttackMin==='number')dynRange.attackMin=j.dynamicAttackMin;if(typeof j.dynamicAttackMax==='number')dynRange.attackMax=j.dynamicAttackMax;if(typeof j.dynamicReleaseMin==='number')dynRange.releaseMin=j.dynamicReleaseMin;if(typeof j.dynamicReleaseMax==='number')dynRange.releaseMax=j.dynamicReleaseMax;if(typeof j.dynamicThresholdMin==='number')dynRange.thresholdMin=j.dynamicThresholdMin;if(typeof j.dynamicThresholdMax==='number')dynRange.thresholdMax=j.dynamicThresholdMax;if(typeof j.dynamicMaxReductionDBMin==='number')dynRange.maxReductionDBMin=j.dynamicMaxReductionDBMin;if(typeof j.dynamicMaxReductionDBMax==='number')dynRange.maxReductionDBMax=j.dynamicMaxReductionDBMax;if(typeof j.dynamicStrengthDBMin==='number')dynRange.strengthDBMin=j.dynamicStrengthDBMin;if(typeof j.dynamicStrengthDBMax==='number')dynRange.strengthDBMax=j.dynamicStrengthDBMax;buildSliders();buildDynamic();}}}catch(e){}if(!dynEl.children.length)buildDynamic();draw();pollSpectrum();setInterval(async()=>{try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.dynamicReductionDB))dynReduction=j.dynamicReductionDB;if(Array.isArray(j.modes))modes=j.modes;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);}}catch(e){}draw();},100);}init();"
+            "async function init(){bindBypassUi();try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;modes=Array.isArray(j.modes)?j.modes:freqs.map(f=>f<=2000?0:(f>16000?2:1));dynReduction=Array.isArray(j.dynamicReductionDB)?j.dynamicReductionDB:freqs.map(()=>0);minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);if(typeof j.dynamicAttack==='number')dyn.attack=j.dynamicAttack;if(typeof j.dynamicRelease==='number')dyn.release=j.dynamicRelease;if(typeof j.dynamicThreshold==='number')dyn.threshold=j.dynamicThreshold;if(typeof j.dynamicMaxReductionDB==='number')dyn.maxReductionDB=j.dynamicMaxReductionDB;if(typeof j.dynamicStrengthDB==='number')dyn.strengthDB=j.dynamicStrengthDB;if(typeof j.dynamicAttackMin==='number')dynRange.attackMin=j.dynamicAttackMin;if(typeof j.dynamicAttackMax==='number')dynRange.attackMax=j.dynamicAttackMax;if(typeof j.dynamicReleaseMin==='number')dynRange.releaseMin=j.dynamicReleaseMin;if(typeof j.dynamicReleaseMax==='number')dynRange.releaseMax=j.dynamicReleaseMax;if(typeof j.dynamicThresholdMin==='number')dynRange.thresholdMin=j.dynamicThresholdMin;if(typeof j.dynamicThresholdMax==='number')dynRange.thresholdMax=j.dynamicThresholdMax;if(typeof j.dynamicMaxReductionDBMin==='number')dynRange.maxReductionDBMin=j.dynamicMaxReductionDBMin;if(typeof j.dynamicMaxReductionDBMax==='number')dynRange.maxReductionDBMax=j.dynamicMaxReductionDBMax;if(typeof j.dynamicStrengthDBMin==='number')dynRange.strengthDBMin=j.dynamicStrengthDBMin;if(typeof j.dynamicStrengthDBMax==='number')dynRange.strengthDBMax=j.dynamicStrengthDBMax;syncBypassUi();buildSliders();buildDynamic();}}}catch(e){}if(!dynEl.children.length)buildDynamic();syncBypassUi();draw();pollSpectrum();setInterval(async()=>{try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.dynamicReductionDB))dynReduction=j.dynamicReductionDB;if(Array.isArray(j.modes))modes=j.modes;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);syncBypassUi();}}catch(e){}draw();},100);}init();"
             "</script></body></html>";
         send_http_response(clientFd, "text/html; charset=utf-8", page);
         return;
