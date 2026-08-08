@@ -458,7 +458,8 @@ void play_dsp_set_dynamic_params(play_dsp_state* state,
     state->dynamicAttack = clampf(attack, DYNAMIC_EQ_MIN_ATTACK, DYNAMIC_EQ_MAX_ATTACK);
     state->dynamicRelease = clampf(release, DYNAMIC_EQ_MIN_RELEASE, DYNAMIC_EQ_MAX_RELEASE);
     state->dynamicThreshold = clampf(threshold, DYNAMIC_EQ_MIN_THRESHOLD, DYNAMIC_EQ_MAX_THRESHOLD);
-    state->dynamicMaxReductionDB = clampf(maxReductionDB, DYNAMIC_EQ_MIN_MAX_REDUCTION_DB, DYNAMIC_EQ_MAX_MAX_REDUCTION_DB);
+    state->dynamicMaxReductionDB = clampf(maxReductionDB, DYNAMIC_EQ_MIN_MAX_REDUCTION_DB,
+                                          DYNAMIC_EQ_MAX_MAX_REDUCTION_DB);
     state->dynamicStrengthDB = clampf(strengthDB, DYNAMIC_EQ_MIN_STRENGTH_DB, DYNAMIC_EQ_MAX_STRENGTH_DB);
 }
 
@@ -474,7 +475,9 @@ int play_dsp_get_bypass(const play_dsp_state* state)
 
 void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position)
 {
-    uint8_t pos = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    uint8_t pos = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+                      ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                      : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     state->lowCrossfeedEnabled = enabled ? 1u : 0u;
     state->lowCrossfeedPosition = pos;
 }
@@ -591,7 +594,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                     }
                     else
                     {
-                        out = state->b0[band] * in + state->b1[band] * state->x1[band][ch] + state->b2[band] * state->x2[band][ch]
+                        out = state->b0[band] * in + state->b1[band] * state->x1[band][ch] + state->b2[band] * state->x2
+                            [band][ch]
                             - state->a1[band] * state->y1[band][ch] - state->a2[band] * state->y2[band][ch];
 
                         state->x2[band][ch] = state->x1[band][ch];
@@ -710,7 +714,8 @@ void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes,
     }
 }
 
-void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs, int maxCount)
+void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs,
+                                 int maxCount)
 {
     int n = (maxCount < ANALYZER_BINS) ? maxCount : ANALYZER_BINS;
     for (int i = 0; i < n; ++i)

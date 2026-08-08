@@ -7,20 +7,24 @@
 #define MCU_BLOCK_FRAMES 128
 #define MCU_SAMPLE_RATE 48000
 
-__attribute__((weak)) uint32_t play_mcu_read_frames(float* interleavedOut, uint32_t maxFrames)
+__attribute__ ((weak)) uint32_t play_mcu_read_frames(float* interleavedOut, uint32_t maxFrames)
 {
     (void)interleavedOut;
     (void)maxFrames;
     return 0;
 }
 
-__attribute__((weak)) void play_mcu_write_frames(const float* interleavedIn, uint32_t frameCount)
+__attribute__ ((weak))
+
+void play_mcu_write_frames(const float* interleavedIn, uint32_t frameCount)
 {
     (void)interleavedIn;
     (void)frameCount;
 }
 
-__attribute__((weak)) void play_mcu_poll_eq(float* gainsOut, float* qsOut, int maxBands)
+__attribute__ ((weak))
+
+void play_mcu_poll_eq(float* gainsOut, float* qsOut, int maxBands)
 {
     (void)gainsOut;
     (void)qsOut;

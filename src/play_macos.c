@@ -66,13 +66,15 @@ static void audio_data_callback(ma_device* pDevice, void* pOutput, const void* p
     while (totalRead < frameCount)
     {
         ma_uint64 chunkRead = 0;
-        ma_result readResult = app->input.read_frames(app->input.userData, out + totalRead * app->channels, frameCount - totalRead, &chunkRead);
+        ma_result readResult = app->input.read_frames(app->input.userData, out + totalRead * app->channels,
+                                                      frameCount - totalRead, &chunkRead);
 
         if (readResult != MA_SUCCESS || chunkRead == 0)
         {
             if (app->input.rewind(app->input.userData) != MA_SUCCESS)
             {
-                memset(out + totalRead * app->channels, 0, (size_t)((frameCount - totalRead) * app->channels * sizeof(float)));
+                memset(out + totalRead * app->channels, 0,
+                       (size_t)((frameCount - totalRead) * app->channels * sizeof(float)));
                 break;
             }
             continue;
@@ -110,7 +112,8 @@ static void send_http_response(int clientFd, const char* contentType, const char
 static void send_not_found(int clientFd)
 {
     const char* body = "Not Found";
-    const char* header = "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\n";
+    const char* header =
+        "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\n";
     send(clientFd, header, strlen(header), 0);
     send(clientFd, body, strlen(body), 0);
 }
@@ -331,18 +334,18 @@ static void handle_http_request(http_server_state* http, int clientFd)
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
-               "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
+                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
                            EQ_MIN_GAIN_DB,
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
                            EQ_MAX_Q,
                            http->app->dsp.sampleRate,
-                   ((pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u) ? "true" : "false",
-               bypassEnabled ? "true" : "false",
-               lowCrossfeedEnabled ? "true" : "false",
-               (unsigned)lowCrossfeedPosition,
-               PLAY_LOW_CROSSFEED_CUTOFF_HZ,
-               PLAY_LOW_CROSSFEED_RATIO,
+                           ((pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u) ? "true" : "false",
+                           bypassEnabled ? "true" : "false",
+                           lowCrossfeedEnabled ? "true" : "false",
+                           (unsigned)lowCrossfeedPosition,
+                           PLAY_LOW_CROSSFEED_CUTOFF_HZ,
+                           PLAY_LOW_CROSSFEED_RATIO,
                            dynamicAttack,
                            dynamicRelease,
                            dynamicThreshold,
@@ -375,12 +378,14 @@ static void handle_http_request(http_server_state* http, int clientFd)
         offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"modes\":[");
         for (int i = 0; i < EQ_BANDS; ++i)
         {
-            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%u", (i == 0) ? "" : ",", (unsigned)modes[i]);
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%u", (i == 0) ? "" : ",",
+                               (unsigned)modes[i]);
         }
         offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"dynamicReductionDB\":[");
         for (int i = 0; i < EQ_BANDS; ++i)
         {
-            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",", dynamicReductionDB[i]);
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",",
+                               dynamicReductionDB[i]);
         }
         pthread_mutex_unlock(&http->app->dspMutex);
 
@@ -428,15 +433,21 @@ static void handle_http_request(http_server_state* http, int clientFd)
         hasDynamicAttack = parse_float_value_from_json(bodyStart, "\"dynamicAttack\"", &dynamicAttack);
         hasDynamicRelease = parse_float_value_from_json(bodyStart, "\"dynamicRelease\"", &dynamicRelease);
         hasDynamicThreshold = parse_float_value_from_json(bodyStart, "\"dynamicThreshold\"", &dynamicThreshold);
-        hasDynamicMaxReductionDB = parse_float_value_from_json(bodyStart, "\"dynamicMaxReductionDB\"", &dynamicMaxReductionDB);
+        hasDynamicMaxReductionDB = parse_float_value_from_json(bodyStart, "\"dynamicMaxReductionDB\"",
+                                                               &dynamicMaxReductionDB);
         hasDynamicStrengthDB = parse_float_value_from_json(bodyStart, "\"dynamicStrengthDB\"", &dynamicStrengthDB);
-        hasPhasePluginEnabled = parse_float_value_from_json(bodyStart, "\"phasePluginEnabled\"", &phasePluginEnabledValue);
+        hasPhasePluginEnabled = parse_float_value_from_json(bodyStart, "\"phasePluginEnabled\"",
+                                                            &phasePluginEnabledValue);
         hasBypassEnabled = parse_float_value_from_json(bodyStart, "\"bypassEnabled\"", &bypassEnabledValue);
-        hasLowCrossfeedEnabled = parse_float_value_from_json(bodyStart, "\"lowCrossfeedEnabled\"", &lowCrossfeedEnabledValue);
-        hasLowCrossfeedPosition = parse_float_value_from_json(bodyStart, "\"lowCrossfeedPosition\"", &lowCrossfeedPositionValue);
-        hasAnyDynamic = hasDynamicAttack || hasDynamicRelease || hasDynamicThreshold || hasDynamicMaxReductionDB || hasDynamicStrengthDB;
+        hasLowCrossfeedEnabled = parse_float_value_from_json(bodyStart, "\"lowCrossfeedEnabled\"",
+                                                             &lowCrossfeedEnabledValue);
+        hasLowCrossfeedPosition = parse_float_value_from_json(bodyStart, "\"lowCrossfeedPosition\"",
+                                                              &lowCrossfeedPositionValue);
+        hasAnyDynamic = hasDynamicAttack || hasDynamicRelease || hasDynamicThreshold || hasDynamicMaxReductionDB ||
+            hasDynamicStrengthDB;
 
-        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasBypassEnabled && !hasLowCrossfeedEnabled
+        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasBypassEnabled && !
+            hasLowCrossfeedEnabled
             && !hasLowCrossfeedPosition)
         {
             send_http_response(clientFd, "application/json", "{\"ok\":false,\"reason\":\"invalid eq payload\"}");
@@ -517,7 +528,9 @@ static void handle_http_request(http_server_state* http, int clientFd)
             }
             if (hasLowCrossfeedPosition)
             {
-                currentPosition = (lowCrossfeedPositionValue >= 0.5f) ? (uint8_t)PLAY_CROSSFEED_POST_EQ : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+                currentPosition = (lowCrossfeedPositionValue >= 0.5f)
+                                      ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                                      : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
             }
 
             play_dsp_set_low_crossfeed(&http->app->dsp, currentEnabled, currentPosition);
