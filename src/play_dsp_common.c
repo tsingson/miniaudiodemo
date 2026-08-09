@@ -12,11 +12,6 @@
 #include <string.h>
 
 #define LN_1000_F 6.90775527898f
-#define DYNAMIC_EQ_DEFAULT_ATTACK 0.12f
-#define DYNAMIC_EQ_DEFAULT_RELEASE 0.02f
-#define DYNAMIC_EQ_DEFAULT_THRESHOLD 0.18f
-#define DYNAMIC_EQ_DEFAULT_MAX_REDUCTION_DB 12.0f
-#define DYNAMIC_EQ_DEFAULT_STRENGTH_DB 18.0f
 
 #ifdef USE_CMSIS_DSP
 static float cmsis_scalar_exp(float x)
@@ -60,19 +55,6 @@ static float db_to_linear(float db)
     return powf(10.0f, db / 20.0f);
 }
 
-static float clampf(float v, float lo, float hi)
-{
-    if (v < lo)
-    {
-        return lo;
-    }
-    if (v > hi)
-    {
-        return hi;
-    }
-    return v;
-}
-
 static void update_low_crossfeed_coeff(play_dsp_state* state)
 {
     float w = 2.0f * (float)M_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)state->sampleRate;
@@ -86,92 +68,11 @@ static float low_crossfeed_lp_process(play_dsp_state* state, uint32_t ch, float 
     return y;
 }
 
-static void assign_band_modes(play_dsp_state* state)
-{
-    for (int i = 0; i < EQ_BANDS; ++i)
-    {
-        float freq = state->bandFreqs[i];
-        if (freq <= EQ_LINEAR_MAX_HZ)
-        {
-            state->bandModes[i] = (uint8_t)PLAY_EQ_MODE_LINEAR;
-        }
-        else if (freq <= EQ_DYNAMIC_MAX_HZ)
-        {
-            state->bandModes[i] = (uint8_t)PLAY_EQ_MODE_DYNAMIC;
-        }
-        else
-        {
-            state->bandModes[i] = (uint8_t)PLAY_EQ_MODE_NORMAL;
-        }
-    }
-}
-
 static void rebuild_eq(play_dsp_state* state)
 {
+    play_eq_assign_band_modes(state);
     play_eq_linear_rebuild(state);
-
-    for (int i = 0; i < EQ_BANDS; ++i)
-    {
-        double gainDB = state->gainsDB[i];
-        double q = state->qValues[i];
-        double frequency = state->bandFreqs[i];
-        uint8_t mode = state->bandModes[i];
-        if (mode == (uint8_t)PLAY_EQ_MODE_LINEAR)
-        {
-            state->bandUseSVF[i] = 0u;
-            continue;
-        }
-
-        state->bandUseSVF[i] = (frequency <= (double)EQ_LOW_SVF_MAX_HZ) ? 1u : 0u;
-
-        if (state->bandUseSVF[i])
-        {
-            double g = tan(M_PI * frequency / (double)state->sampleRate);
-            double k = 1.0 / q;
-            double aBell = pow(10.0, gainDB / 40.0);
-            double h = 1.0 / (1.0 + g * (g + k));
-
-            state->svfG[i] = g;
-            state->svfK[i] = k;
-            state->svfA[i] = aBell;
-            state->svfH[i] = h;
-            continue;
-        }
-
-        play_eq_normal_build_peaking(gainDB,
-                         q,
-                         frequency,
-                         (double)state->sampleRate,
-                         &state->b0[i],
-                         &state->b1[i],
-                         &state->b2[i],
-                         &state->a1[i],
-                         &state->a2[i]);
-    }
-}
-
-static float process_tpt_svf_band(play_dsp_state* state, int band, uint32_t ch, float in)
-{
-    double g = state->svfG[band];
-    double k = state->svfK[band];
-    double aBell = state->svfA[band];
-    double h = state->svfH[band];
-    double ic1eq = state->svfIc1eq[band][ch];
-    double ic2eq = state->svfIc2eq[band][ch];
-    double v1;
-    double v2;
-    double bp;
-    double out;
-
-    v1 = h * (ic1eq + g * ((double)in - ic2eq));
-    v2 = ic2eq + g * v1;
-    bp = v1;
-    out = (double)in + k * (aBell - 1.0) * bp;
-
-    state->svfIc1eq[band][ch] = 2.0 * v1 - ic1eq;
-    state->svfIc2eq[band][ch] = 2.0 * v2 - ic2eq;
-
-    return (float)out;
+    play_eq_normal_rebuild(state);
 }
 
 static float goertzel_magnitude(const float* samples, int sampleCount, int k)
@@ -346,35 +247,14 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->sampleRate = sampleRate;
     state->channels = channels;
 
-    {
-        const float freqs[EQ_BANDS] = {
-            20.0f, 35.0f, 60.0f, 110.0f, 220.0f, 360.0f, 700.0f, 1600.0f, 3200.0f, 4800.0f, 7200.0f, 10000.0f, 16000.0f, 18000.0f, 20000.0f, 22000.0f};
-        const float gains[EQ_BANDS] = {
-            3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -3.0f, -24.0f, -24.0f};
-        const float qs[EQ_BANDS] = {
-            0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
-
-        for (int i = 0; i < EQ_BANDS; ++i)
-        {
-            state->bandFreqs[i] = freqs[i];
-            state->gainsDB[i] = gains[i];
-            state->qValues[i] = qs[i];
-        }
-    }
-
-    state->dynamicAttack = DYNAMIC_EQ_DEFAULT_ATTACK;
-    state->dynamicRelease = DYNAMIC_EQ_DEFAULT_RELEASE;
-    state->dynamicThreshold = DYNAMIC_EQ_DEFAULT_THRESHOLD;
-    state->dynamicMaxReductionDB = DYNAMIC_EQ_DEFAULT_MAX_REDUCTION_DB;
-    state->dynamicStrengthDB = DYNAMIC_EQ_DEFAULT_STRENGTH_DB;
+    play_eq_normal_init_default_profile(state);
+    play_eq_dynamic_init_params_state(state);
     state->bypassEnabled = 0u;
     state->lowCrossfeedEnabled = 0u;
     state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     play_eq_linear_init(state);
     play_mb_dyn_init(state);
     update_low_crossfeed_coeff(state);
-
-    assign_band_modes(state);
 
     spectrum_init_bins(state);
     rebuild_eq(state);
@@ -425,7 +305,6 @@ void play_dsp_set_eq_params(play_dsp_state* state, const float* gains, int gainC
         state->qValues[i] = q;
     }
 
-    assign_band_modes(state);
     rebuild_eq(state);
 }
 
@@ -436,12 +315,7 @@ void play_dsp_set_dynamic_params(play_dsp_state* state,
                                  float maxReductionDB,
                                  float strengthDB)
 {
-    state->dynamicAttack = clampf(attack, DYNAMIC_EQ_MIN_ATTACK, DYNAMIC_EQ_MAX_ATTACK);
-    state->dynamicRelease = clampf(release, DYNAMIC_EQ_MIN_RELEASE, DYNAMIC_EQ_MAX_RELEASE);
-    state->dynamicThreshold = clampf(threshold, DYNAMIC_EQ_MIN_THRESHOLD, DYNAMIC_EQ_MAX_THRESHOLD);
-    state->dynamicMaxReductionDB = clampf(maxReductionDB, DYNAMIC_EQ_MIN_MAX_REDUCTION_DB,
-                                          DYNAMIC_EQ_MAX_MAX_REDUCTION_DB);
-    state->dynamicStrengthDB = clampf(strengthDB, DYNAMIC_EQ_MIN_STRENGTH_DB, DYNAMIC_EQ_MAX_STRENGTH_DB);
+    play_eq_dynamic_set_params_state(state, attack, release, threshold, maxReductionDB, strengthDB);
 }
 
 void play_dsp_set_bypass(play_dsp_state* state, int enabled)
@@ -559,26 +433,7 @@ void play_dsp_get_dynamic_params(const play_dsp_state* state,
                                  float* outMaxReductionDB,
                                  float* outStrengthDB)
 {
-    if (outAttack != NULL)
-    {
-        *outAttack = state->dynamicAttack;
-    }
-    if (outRelease != NULL)
-    {
-        *outRelease = state->dynamicRelease;
-    }
-    if (outThreshold != NULL)
-    {
-        *outThreshold = state->dynamicThreshold;
-    }
-    if (outMaxReductionDB != NULL)
-    {
-        *outMaxReductionDB = state->dynamicMaxReductionDB;
-    }
-    if (outStrengthDB != NULL)
-    {
-        *outStrengthDB = state->dynamicStrengthDB;
-    }
+    play_eq_dynamic_get_params_state(state, outAttack, outRelease, outThreshold, outMaxReductionDB, outStrengthDB);
 }
 
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels)
@@ -651,7 +506,7 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
 
                     if (state->bandUseSVF[band])
                     {
-                        out = process_tpt_svf_band(state, band, ch, in);
+                        out = play_eq_normal_process_svf_band(state, band, ch, in);
                     }
                     else
                     {

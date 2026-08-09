@@ -49,11 +49,7 @@ add_executable(test_eq_normal
                src/play_eq_normal.c)
 add_executable(test_eq_linear
                tests/test_eq_linear.c
-               src/play_dsp_common.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c)
+               src/play_eq_linear.c)
 target_include_directories(miniaudiodemo PRIVATE src)
 target_include_directories(three_way_macos PRIVATE src)
 target_include_directories(play_macos PRIVATE src)
