@@ -97,3 +97,15 @@ output_6ch.wav
 out.wav
 miniaudiodemo
 play_mcu
+test_eq_dynamic
+test_eq_linear
+test_eq_normal
+test_pipeline_chain
+verify_eq_taps
+test_eq_normal
+test_eq_linear
+test_eq_dynamic
+verify_eq_taps
+test_eq_normal
+test_eq_linear
+test_eq_normal

@@ -2,9 +2,11 @@
 #include "play_dsp_common.h"
 
 #include <arpa/inet.h>
+#include <errno.h>
 #include <math.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -38,10 +40,32 @@ typedef struct
 typedef struct
 {
     app_audio_state* app;
-    volatile bool running;
+    atomic_bool running;
     int serverFd;
     pthread_t thread;
 } http_server_state;
+
+static int send_all(int fd, const char* data, size_t len)
+{
+    size_t sent = 0;
+
+    while (sent < len)
+    {
+        ssize_t n = send(fd, data + sent, len - sent, 0);
+        if (n > 0)
+        {
+            sent += (size_t)n;
+            continue;
+        }
+        if (n < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        return -1;
+    }
+
+    return 0;
+}
 
 static ma_result wav_read_frames(void* userData, float* out, ma_uint64 frameCount, ma_uint64* framesRead)
 {
@@ -60,6 +84,7 @@ static void audio_data_callback(ma_device* pDevice, void* pOutput, const void* p
     app_audio_state* app = (app_audio_state*)pDevice->pUserData;
     float* out = (float*)pOutput;
     ma_uint64 totalRead = 0;
+    int rewindAttempts = 0;
 
     (void)pInput;
 
@@ -71,16 +96,18 @@ static void audio_data_callback(ma_device* pDevice, void* pOutput, const void* p
 
         if (readResult != MA_SUCCESS || chunkRead == 0)
         {
-            if (app->input.rewind(app->input.userData) != MA_SUCCESS)
+            if (rewindAttempts >= 3 || app->input.rewind(app->input.userData) != MA_SUCCESS)
             {
                 memset(out + totalRead * app->channels, 0,
                        (size_t)((frameCount - totalRead) * app->channels * sizeof(float)));
                 break;
             }
+            rewindAttempts += 1;
             continue;
         }
 
         totalRead += chunkRead;
+        rewindAttempts = 0;
     }
 
     pthread_mutex_lock(&app->dspMutex);
@@ -104,8 +131,8 @@ static void send_http_response(int clientFd, const char* contentType, const char
 
     if (n > 0)
     {
-        send(clientFd, header, (size_t)n, 0);
-        send(clientFd, body, (size_t)bodyLen, 0);
+        (void)send_all(clientFd, header, (size_t)n);
+        (void)send_all(clientFd, body, (size_t)bodyLen);
     }
 }
 
@@ -114,8 +141,8 @@ static void send_not_found(int clientFd)
     const char* body = "Not Found";
     const char* header =
         "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\n";
-    send(clientFd, header, strlen(header), 0);
-    send(clientFd, body, strlen(body), 0);
+    (void)send_all(clientFd, header, strlen(header));
+    (void)send_all(clientFd, body, strlen(body));
 }
 
 static int parse_float_array_from_json(const char* body, const char* key, float* out, int maxCount)
@@ -209,16 +236,20 @@ static void handle_http_request(http_server_state* http, int clientFd)
         float phaseDeltaDeg[ANALYZER_BINS];
         float groupDelayMs[ANALYZER_BINS];
         uint32_t pluginMask;
+        uint32_t sampleRate;
         int offset = 0;
 
         pthread_mutex_lock(&http->app->dspMutex);
         play_dsp_copy_spectrum(&http->app->dsp, preBins, postBins, ANALYZER_BINS);
         play_dsp_copy_phase_metrics(&http->app->dsp, phaseDeltaDeg, groupDelayMs, ANALYZER_BINS);
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
+        sampleRate = http->app->dsp.sampleRate;
+        pthread_mutex_unlock(&http->app->dspMutex);
+
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
                            "{\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"preBins\":[",
-                           http->app->dsp.sampleRate,
+                           sampleRate,
                            ((pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u) ? "true" : "false");
         for (int i = 0; i < ANALYZER_BINS; ++i)
         {
@@ -294,8 +325,6 @@ static void handle_http_request(http_server_state* http, int clientFd)
                 break;
             }
         }
-        pthread_mutex_unlock(&http->app->dspMutex);
-
         snprintf(body + offset, sizeof(body) - (size_t)offset, "]}");
         send_http_response(clientFd, "application/json", body);
         return;
@@ -332,6 +361,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
         int lowCrossfeedEnabled;
         uint8_t lowCrossfeedPosition;
         uint32_t pluginMask;
+        uint32_t sampleRate;
         int offset = 0;
 
         pthread_mutex_lock(&http->app->dspMutex);
@@ -364,6 +394,9 @@ static void handle_http_request(http_server_state* http, int clientFd)
         bypassEnabled = play_dsp_get_bypass(&http->app->dsp);
         play_dsp_get_low_crossfeed(&http->app->dsp, &lowCrossfeedEnabled, &lowCrossfeedPosition);
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
+        sampleRate = http->app->dsp.sampleRate;
+        pthread_mutex_unlock(&http->app->dspMutex);
+
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
                            "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"linearFirEnabled\":%s,\"linearFirTaps\":%d,\"linearFirDelaySamples\":%d,\"linearFirDelayMs\":%.4f,\"linearFirSupportedTaps\":[17,25,33],\"mbDynEnabled\":%s,\"mbDynPosition\":%u,\"mbDynThreshold\":%.4f,\"mbDynAttack\":%.4f,\"mbDynRelease\":%.4f,\"mbDynStrength\":%.3f,\"mbDynBandMinDB\":%.1f,\"mbDynBandMaxDB\":%.1f,\"mbDynThresholdMin\":%.3f,\"mbDynThresholdMax\":%.3f,\"mbDynAttackMin\":%.4f,\"mbDynAttackMax\":%.3f,\"mbDynReleaseMin\":%.3f,\"mbDynReleaseMax\":%.3f,\"mbDynStrengthMin\":%.2f,\"mbDynStrengthMax\":%.1f,\"freqs\":[",
@@ -371,7 +404,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
                            EQ_MAX_Q,
-                           http->app->dsp.sampleRate,
+                           sampleRate,
                            ((pluginMask & PLAY_DSP_PLUGIN_PHASE_ANALYZER) != 0u) ? "true" : "false",
                            bypassEnabled ? "true" : "false",
                            lowCrossfeedEnabled ? "true" : "false",
@@ -463,8 +496,6 @@ static void handle_http_request(http_server_state* http, int clientFd)
             offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.0f", (i == 0) ? "" : ",",
                                mbDynBandHighHz[i]);
         }
-        pthread_mutex_unlock(&http->app->dspMutex);
-
         snprintf(body + offset, sizeof(body) - (size_t)offset, "]}");
         send_http_response(clientFd, "application/json", body);
         return;
@@ -874,7 +905,7 @@ static void* http_server_thread_main(void* userData)
         return NULL;
     }
 
-    while (http->running)
+    while (atomic_load_explicit(&http->running, memory_order_acquire))
     {
         int clientFd = accept(http->serverFd, NULL, NULL);
         if (clientFd < 0)
@@ -939,7 +970,13 @@ int main(void)
     app.input.userData = &wavSource;
     app.input.read_frames = wav_read_frames;
     app.input.rewind = wav_rewind;
-    pthread_mutex_init(&app.dspMutex, NULL);
+    if (pthread_mutex_init(&app.dspMutex, NULL) != 0)
+    {
+        printf("初始化互斥锁失败。\n");
+        ma_device_uninit(&device);
+        ma_decoder_uninit(&wavSource.decoder);
+        return -1;
+    }
     if (play_dsp_init(&app.dsp, device.sampleRate, app.channels) != 0)
     {
         printf("初始化 DSP 失败。\n");
@@ -950,14 +987,21 @@ int main(void)
     }
 
     http.app = &app;
-    http.running = true;
-    pthread_create(&http.thread, NULL, http_server_thread_main, &http);
+    atomic_init(&http.running, true);
+    if (pthread_create(&http.thread, NULL, http_server_thread_main, &http) != 0)
+    {
+        printf("启动 HTTP 线程失败。\n");
+        pthread_mutex_destroy(&app.dspMutex);
+        ma_device_uninit(&device);
+        ma_decoder_uninit(&wavSource.decoder);
+        return -1;
+    }
 
     result = ma_device_start(&device);
     if (result != MA_SUCCESS)
     {
         printf("启动播放设备失败。\n");
-        http.running = false;
+        atomic_store_explicit(&http.running, false, memory_order_release);
         if (http.serverFd >= 0)
         {
             shutdown(http.serverFd, SHUT_RDWR);
@@ -974,7 +1018,7 @@ int main(void)
     printf("按回车键退出。\n");
     getchar();
 
-    http.running = false;
+    atomic_store_explicit(&http.running, false, memory_order_release);
     if (http.serverFd >= 0)
     {
         shutdown(http.serverFd, SHUT_RDWR);
