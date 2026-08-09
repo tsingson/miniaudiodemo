@@ -10,7 +10,7 @@
 #define ANALYZER_WINDOW 512
 #define ANALYZER_BINS 48
 #define MAX_CHANNELS 2
-#define EQ_BANDS 8
+#define EQ_BANDS 13
 #define EQ_MIN_GAIN_DB -36.0f
 #define EQ_MAX_GAIN_DB 36.0f
 #define EQ_MIN_Q 0.3f
@@ -18,7 +18,7 @@
 #define EQ_LOW_SVF_MAX_HZ 1000.0f
 
 #define EQ_LINEAR_MAX_HZ 2000.0f
-#define EQ_DYNAMIC_MAX_HZ 16000.0f
+#define EQ_DYNAMIC_MAX_HZ 17000.0f
 #define DYNAMIC_EQ_MIN_ATTACK 0.01f
 #define DYNAMIC_EQ_MAX_ATTACK 0.50f
 #define DYNAMIC_EQ_MIN_RELEASE 0.005f
@@ -32,7 +32,7 @@
 
 #define PLAY_DSP_PLUGIN_PHASE_ANALYZER 0x01u
 #define PLAY_LOW_CROSSFEED_CUTOFF_HZ 150.0f
-#define PLAY_LOW_CROSSFEED_RATIO 0.30f
+#define PLAY_LOW_CROSSFEED_RATIO 0.40f
 
 typedef enum
 {
@@ -132,7 +132,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
 void play_dsp_copy_bins(const play_dsp_state* state, float* outBins, int maxCount);
 void play_dsp_copy_spectrum(const play_dsp_state* state, float* outPreBins, float* outPostBins, int maxCount);
 void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes, float* outReductionDB, int maxCount);
-void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs, int maxCount);
+void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs,
+                                 int maxCount);
 void play_dsp_copy_eq(const play_dsp_state* state, float* outFreqs, float* outGains, float* outQs, int maxCount);
 
 #endif

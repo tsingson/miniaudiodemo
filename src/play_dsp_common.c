@@ -124,12 +124,11 @@ static void rebuild_eq(play_dsp_state* state)
 
         if (mode == (uint8_t)PLAY_EQ_MODE_LINEAR)
         {
-            float linearAmplitude = 1.0f + (float)(gainDB / (double)EQ_MAX_GAIN_DB);
-            if (linearAmplitude < 0.05f)
-            {
-                linearAmplitude = 0.05f;
-            }
-            gainDB = 20.0 * log10((double)linearAmplitude);
+            /*
+             * Keep slider gain in dB unchanged for linear bands.
+             * "Linear" here means static (non-dynamic) processing, not gain compression.
+             */
+            gainDB = state->gainsDB[i];
         }
 
         state->bandUseSVF[i] = (frequency <= (double)EQ_LOW_SVF_MAX_HZ) ? 1u : 0u;
@@ -145,6 +144,34 @@ static void rebuild_eq(play_dsp_state* state)
             state->svfK[i] = k;
             state->svfA[i] = aBell;
             state->svfH[i] = h;
+            continue;
+        }
+
+        if (frequency >= 18000.0)
+        {
+            double qLp = 0.70710678118;
+            w0 = 2.0 * M_PI * frequency / (double)state->sampleRate;
+#ifdef USE_CMSIS_DSP
+            cosw0 = arm_cos_f32((float32_t)w0);
+            sinw0 = arm_sin_f32((float32_t)w0);
+#else
+            cosw0 = cos(w0);
+            sinw0 = sin(w0);
+#endif
+            alpha = sinw0 / (2.0 * qLp);
+
+            b0 = (1.0 - cosw0) * 0.5;
+            b1 = 1.0 - cosw0;
+            b2 = (1.0 - cosw0) * 0.5;
+            a0 = 1.0 + alpha;
+            a1 = -2.0 * cosw0;
+            a2 = 1.0 - alpha;
+
+            state->b0[i] = b0 / a0;
+            state->b1[i] = b1 / a0;
+            state->b2[i] = b2 / a0;
+            state->a1[i] = a1 / a0;
+            state->a2[i] = a2 / a0;
             continue;
         }
 
@@ -371,9 +398,12 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->channels = channels;
 
     {
-        const float freqs[EQ_BANDS] = {31.0f, 62.0f, 125.0f, 250.0f, 500.0f, 2000.0f, 8000.0f, 18000.0f};
-        const float gains[EQ_BANDS] = {3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-        const float qs[EQ_BANDS] = {0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
+        const float freqs[EQ_BANDS] = {
+            31.0f, 62.0f, 125.0f, 250.0f, 500.0f, 2000.0f, 8000.0f, 10000.0f, 12000.0f, 15000.0f, 16000.0f, 17000.0f, 18000.0f};
+        const float gains[EQ_BANDS] = {
+            3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+        const float qs[EQ_BANDS] = {
+            0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
 
         for (int i = 0; i < EQ_BANDS; ++i)
         {
