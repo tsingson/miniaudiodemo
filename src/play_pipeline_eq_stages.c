@@ -1,6 +1,7 @@
 #include "play_pipeline_eq_stages.h"
 
 #include "play_eq_normal.h"
+#include "play_multiband_dynamics.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -35,6 +36,15 @@ static int bands_sanitize(int bandCount)
 static float db_to_linear(float db)
 {
     return powf(10.0f, db / 20.0f);
+}
+
+static float crossfeed_lowpass_process(play_dsp_state* state, uint32_t ch, float x)
+{
+    float y;
+
+    y = (1.0f - state->lowCrossfeedLpA) * x + state->lowCrossfeedLpA * state->lowCrossfeedLpState[ch];
+    state->lowCrossfeedLpState[ch] = y;
+    return y;
 }
 
 void play_eq_stage_profile_init(play_eq_stage_profile* profile,
@@ -223,6 +233,47 @@ void play_normal_eq_stage_init(play_normal_eq_stage* stage,
                                   stage->svfH);
 }
 
+void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* state, uint8_t position)
+{
+    if (stage == NULL)
+    {
+        return;
+    }
+
+    stage->state = state;
+    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                                                                     : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+}
+
+void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8_t position)
+{
+    if (stage == NULL)
+    {
+        return;
+    }
+
+    stage->state = state;
+    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                                                                     : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+}
+
+void play_observer_stage_init(play_observer_stage* stage,
+                              play_dsp_state* state,
+                              play_observer_metrics* metrics,
+                              play_observer_stage_kind kind,
+                              void (*onWindowComplete)(play_dsp_state* state))
+{
+    if (stage == NULL)
+    {
+        return;
+    }
+
+    stage->state = state;
+    stage->metrics = metrics;
+    stage->kind = kind;
+    stage->onWindowComplete = onWindowComplete;
+}
+
 int play_linear_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_linear_eq_stage* stage = (play_linear_eq_stage*)ctx;
@@ -385,6 +436,137 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
             }
 
             block->interleaved[idx] = in;
+        }
+    }
+
+    return 0;
+}
+
+int play_crossfeed_stage_process(void* ctx, play_frame_block* block)
+{
+    play_crossfeed_stage* stage = (play_crossfeed_stage*)ctx;
+    uint32_t stride;
+
+    if (stage == NULL || stage->state == NULL || block == NULL || block->interleaved == NULL)
+    {
+        return -1;
+    }
+
+    if (!stage->state->lowCrossfeedEnabled || stage->state->lowCrossfeedPosition != stage->position ||
+        block->channels < 2u)
+    {
+        return 0;
+    }
+
+    stride = block->channels;
+    for (uint32_t i = 0; i < block->frameCount; ++i)
+    {
+        uint32_t idx = i * stride;
+        float inL = block->interleaved[idx + 0u];
+        float inR = block->interleaved[idx + 1u];
+        float lowL = crossfeed_lowpass_process(stage->state, 0u, inL);
+        float lowR = crossfeed_lowpass_process(stage->state, 1u, inR);
+
+        block->interleaved[idx + 0u] = inL + PLAY_LOW_CROSSFEED_RATIO * lowR;
+        block->interleaved[idx + 1u] = inR + PLAY_LOW_CROSSFEED_RATIO * lowL;
+    }
+
+    return 0;
+}
+
+int play_mbdyn_stage_process(void* ctx, play_frame_block* block)
+{
+    play_mbdyn_stage* stage = (play_mbdyn_stage*)ctx;
+    uint32_t channels;
+    uint32_t stride;
+
+    if (stage == NULL || stage->state == NULL || block == NULL || block->interleaved == NULL)
+    {
+        return -1;
+    }
+
+    if (!stage->state->mbDynEnabled || stage->state->mbDynPosition != stage->position)
+    {
+        return 0;
+    }
+
+    channels = channels_sanitize(block->channels);
+    stride = block->channels;
+    for (uint32_t i = 0; i < block->frameCount; ++i)
+    {
+        for (uint32_t ch = 0; ch < channels; ++ch)
+        {
+            uint32_t idx = i * stride + ch;
+            play_mb_dyn_process_sample(stage->state, ch, &block->interleaved[idx]);
+        }
+    }
+
+    return 0;
+}
+
+int play_observer_stage_process(void* ctx, play_frame_block* block)
+{
+    play_observer_stage* stage = (play_observer_stage*)ctx;
+    uint32_t channels;
+    uint32_t stride;
+
+    if (stage == NULL || stage->state == NULL || stage->metrics == NULL || block == NULL || block->interleaved == NULL)
+    {
+        return -1;
+    }
+
+    channels = channels_sanitize(block->channels);
+    if (channels == 0u)
+    {
+        return -1;
+    }
+
+    stride = block->channels;
+    for (uint32_t i = 0; i < block->frameCount; ++i)
+    {
+        uint32_t idx = i * stride;
+        float mono = 0.0f;
+
+        for (uint32_t ch = 0; ch < channels; ++ch)
+        {
+            mono += block->interleaved[idx + ch];
+        }
+        mono /= (float)channels;
+
+        if (stage->kind == PLAY_OBSERVER_INPUT_RAW)
+        {
+            stage->metrics->monoIn = mono;
+        }
+        else if (stage->kind == PLAY_OBSERVER_INPUT_EQ)
+        {
+            stage->metrics->monoEqIn = mono;
+        }
+        else if (stage->kind == PLAY_OBSERVER_OUTPUT_EQ)
+        {
+            stage->metrics->monoEqOut = mono;
+        }
+        else
+        {
+            int writeIndex = stage->state->writeIndex;
+
+            stage->metrics->monoOut = mono;
+            stage->state->preSamples[writeIndex] = stage->metrics->monoIn;
+            stage->state->eqTapInSamples[writeIndex] = stage->metrics->monoEqIn;
+            stage->state->eqTapOutSamples[writeIndex] = stage->metrics->monoEqOut;
+            stage->state->postSamples[writeIndex] = stage->metrics->monoOut;
+            stage->state->eqTapSeq += 1u;
+            writeIndex += 1;
+
+            if (writeIndex >= ANALYZER_WINDOW)
+            {
+                writeIndex = 0;
+                if (stage->onWindowComplete != NULL)
+                {
+                    stage->onWindowComplete(stage->state);
+                }
+            }
+
+            stage->state->writeIndex = writeIndex;
         }
     }
 

@@ -4,179 +4,168 @@
 
 本项目当前是一个可实时调参的音频处理链，核心特性如下：
 
-- 13 段 EQ（包含新增 10k / 12k / 15k / 16k / 17k 频点）
+- 16 段 EQ
 - 三种 EQ 模式自动分配（Linear / Dynamic / Normal）
-- 18kHz 节点改为固定高切（12 dB/oct，二阶低通）
-- 全局 bypass（打开后旁路 EQ 与 mixed 效果，但保留参数）
-- 低频 crossfeed（可开关，可选 Pre EQ / Post EQ）
-- 8 频段多段动态处理（multiband dynamics，范围 +/-6 dB）
-- Web 可视化同时显示 MB Target 与 MB Applied 曲线
-- 频谱图支持固定关键频点显示，并增加参考哈曼曲线
+- 全局 bypass（保留参数，关闭处理）
+- 低频 crossfeed（开关 + Pre/Post 位置）
+- 8 段 multiband dynamics（范围 +/-6 dB）
+- observer stages 统一输出 pre/eqTap/post 与频谱窗口
+- 可选 CMSIS-DSP 频谱计算路径（arm_rfft_fast_f32 等）
 
 主入口：
 
-- host 端：`play_macos`
-- MCU 端：`play_mcu`
-- 共用 DSP：`src/play_dsp_common.c`
+- host 端：play_macos
+- MCU 端：play_mcu
+- 共用 DSP：src/play_dsp_common.c
 
 ## 2. 三类 EQ 规则
 
 频段模式由频率自动决定：
 
-- Linear: `f <= 2kHz`
-- Dynamic: `2kHz < f <= 17kHz`
-- Normal: `f > 17kHz`
+- Linear: f <= 220Hz
+- Dynamic: 220Hz < f <= 16000Hz
+- Normal: f > 16000Hz
 
-对应宏定义见 `src/play_dsp_common.h`：
+对应宏定义见 src/play_dsp_common.h：
 
-- `EQ_LINEAR_MAX_HZ = 2000.0f`
-- `EQ_DYNAMIC_MAX_HZ = 17000.0f`
+- EQ_LINEAR_MAX_HZ = 220.0f
+- EQ_DYNAMIC_MAX_HZ = 16000.0f
 
-### 2.1 Linear EQ
+## 3. 默认 16 段频点
 
-- 线性模式不再做“压缩映射”，滑杆 dB 值直接作为目标增益。
-- 低频段（`<= 1kHz`）优先走 TPT-SVF bell 结构，提高低频稳定性与手感。
+初始化频点当前为：
 
-### 2.2 Dynamic EQ
+- 20, 35, 60, 110, 220, 360, 700, 1600, 3200, 4800, 7200, 10000, 16000, 18000, 20000, 22000 (Hz)
 
-- 先做包络跟踪：
-  - `env += coeff * (abs(out) - env)`
-  - 上升用 `attack`，下降用 `release`
-- 当该段用户增益为正且超过阈值时，按强度计算动态衰减。
-- 衰减量受 `dynamicMaxReductionDB` 限幅。
+默认增益：
 
-### 2.3 Normal EQ
+- 20/35/60/110 为 +3dB
+- 18000 为 -3dB
+- 20000/22000 为 -24dB
 
-- 普通静态 peaking EQ。
-- 18kHz 节点特殊处理为固定高切：
-  - 类型：二阶低通
-  - 坡度：12 dB/oct
-  - 目的：超过 18kHz 的能量自然衰减
+## 4. 处理链路顺序
 
-## 3. 13 段默认频点
+play_dsp_process 当前每帧顺序：
 
-初始化频点（`play_dsp_init`）当前为：
+1. observe-input
+2. pre-crossfeed
+3. pre-mbdyn
+4. observe-eq-in
+5. linear-eq
+6. dynamic-eq
+7. normal-eq
+8. observe-eq-out
+9. post-mbdyn
+10. post-crossfeed
+11. observe-output
 
-- 31, 62, 125, 250, 500, 2000, 8000, 10000, 12000, 15000, 16000, 17000, 18000 (Hz)
+说明：
 
-其中：
+- 处理类 stage 在 bypass=ON 时会禁用。
+- observer stages 保留，用于 tap 与频谱缓存连续更新。
 
-- 10k / 12k / 15k / 16k / 17k 为新增可调节点
-- 18k 为高切节点（非普通 peaking）
+## 5. Dynamic EQ 要点
 
-## 4. 多段动态处理（Multiband Dynamics）
+- 包络更新：上升走 attack、下降走 release。
+- 仅在该 band 用户增益为正且超过阈值时计算动态衰减。
+- 衰减由 maxReductionDB 限幅。
 
-### 4.1 基本行为
+## 6. Multiband Dynamics 要点
 
-- 固定 8 个频带分割，分别维护包络和实时作用量。
-- 每个 band 有一个 `amountDb`（范围 +/-6 dB）。
-- 当包络超过阈值后：
-  - `amountDb > 0` 倾向向下压（避免过激）
-  - `amountDb < 0` 倾向向上拉（做扩展倾向）
+- 固定 8 个频带，默认分段：
+  - [20,80], [80,150], [150,300], [300,700], [700,1500], [1500,4000], [4000,10000], [10000,16000]
+- 每段 amount 范围：[-6, +6] dB
+- 支持 Pre EQ / Post EQ 插入
 
-### 4.2 关键范围（来自头文件）
+算法流程（单样本、单声道）：
 
-- `PLAY_MB_DYN_MIN_DB = -6.0f`
-- `PLAY_MB_DYN_MAX_DB = 6.0f`
-- `PLAY_MB_DYN_MIN_THRESHOLD = 0.01f`
-- `PLAY_MB_DYN_MAX_THRESHOLD = 1.00f`
-- `PLAY_MB_DYN_MIN_ATTACK = 0.002f`
-- `PLAY_MB_DYN_MAX_ATTACK = 0.20f`
-- `PLAY_MB_DYN_MIN_RELEASE = 0.005f`
-- `PLAY_MB_DYN_MAX_RELEASE = 0.50f`
-- `PLAY_MB_DYN_MIN_STRENGTH = 0.1f`
-- `PLAY_MB_DYN_MAX_STRENGTH = 8.0f`
+1. 用 7 个一阶低通分频，得到 8 个 band 分量。
+2. 每个 band 独立更新包络 `env`：
+  - 上升：`env += attack * (abs(x) - env)`
+  - 下降：`env += release * (abs(x) - env)`
+3. 当 `env > threshold` 且该 band `amountDb != 0`，计算动态量：
+  - `over = env - threshold`
+  - `delta = clamp(over * 24 * strength, 0, abs(amountDb))`
+  - `amountDb >= 0` => `appliedDb = -delta`（压缩倾向）
+  - `amountDb < 0` => `appliedDb = +delta`（扩展倾向）
+4. `band *= 10^(appliedDb/20)` 后再把 8 个 band 求和回输出。
 
-### 4.3 链路位置
+观测指标：
 
-多段动态支持两种插入位置：
+- `mbDynBandAmountDb[]`：目标值（UI 配置）
+- `mbDynBandAppliedDb[]`：实时生效值（平滑后）
 
-- Pre EQ
-- Post EQ
+关键范围（src/play_dsp_common.h）：
 
-该位置由 `mbDynPosition` 控制，并在 `/eq` 接口中可读写。
+- PLAY_MB_DYN_MIN_DB = -6.0f
+- PLAY_MB_DYN_MAX_DB = 6.0f
+- PLAY_MB_DYN_MIN_THRESHOLD = 0.01f
+- PLAY_MB_DYN_MAX_THRESHOLD = 1.00f
+- PLAY_MB_DYN_MIN_ATTACK = 0.002f
+- PLAY_MB_DYN_MAX_ATTACK = 0.20f
+- PLAY_MB_DYN_MIN_RELEASE = 0.005f
+- PLAY_MB_DYN_MAX_RELEASE = 0.50f
+- PLAY_MB_DYN_MIN_STRENGTH = 0.1f
+- PLAY_MB_DYN_MAX_STRENGTH = 8.0f
 
-## 5. 处理链路顺序
+## 7. 观测与可视化
 
-对每个采样点（每个声道）的整体顺序：
+当前观测数据由 observer stages 写入：
 
-1. 读取输入样本
-2. 若 bypass=OFF 且 mbDyn 开启且位置为 Pre EQ：执行 MB dyn
-3. 若 bypass=OFF 且 lowCrossfeed 开启且位置为 Pre EQ：执行低频 crossfeed
-4. 若 bypass=OFF：执行 13 段 EQ（含 dynamic 后处理）
-5. 若 bypass=OFF 且 lowCrossfeed 开启且位置为 Post EQ：执行低频 crossfeed
-6. 若 bypass=OFF 且 mbDyn 开启且位置为 Post EQ：执行 MB dyn
-7. 写回输出并更新分析窗口
+- preSamples / postSamples
+- eqTapInSamples / eqTapOutSamples
+- eqTapSeq / writeIndex
 
-## 6. Web 端显示与接口
+窗口满时触发频谱更新，并可选更新 phase/group-delay（由 pluginMask 控制）。
 
-### 6.1 频谱与曲线
+## 8. 低频 mixed（左右声道路由）
 
-- 频谱显示精度已提高，按关键频点绘制（如 20/30/.../20k）。
-- 频谱下方标签已去掉 "hz" 后缀，仅显示数值。
-- 增加固定参考哈曼曲线（只作为视觉参考，不参与 DSP）。
-- 新增 MB Target 与 MB Applied 两条曲线：
-  - MB Target：配置目标（用户设定）
-  - MB Applied：实时生效（受包络与阈值影响）
+低频 mixed 由 crossfeed stage 完成，仅在立体声下生效。
 
-### 6.2 `/eq` GET
+步骤：
 
-返回：
+1. 左右声道分别提取低频：
+  - `lowL = LP(L)`
+  - `lowR = LP(R)`
+2. 交叉注入低频：
+  - `L' = L + ratio * lowR`
+  - `R' = R + ratio * lowL`
 
-- EQ 基础参数与限制
-- bypass / crossfeed / dynamic 参数
-- multiband dynamics 开关、位置、全局参数
-- multiband band 边界、target amounts、applied dB
-- dynamicReductionDB 与 bandModes
+当前参数：
 
-### 6.3 `/eq` POST
+- 截止频率：`PLAY_LOW_CROSSFEED_CUTOFF_HZ = 150Hz`
+- 混合比例：`PLAY_LOW_CROSSFEED_RATIO = 0.40`
 
-支持部分字段增量更新，包括：
+可放置位置：
 
-- gains / qs
-- bypassEnabled
-- lowCrossfeedEnabled / lowCrossfeedPosition
-- dynamic 参数组
-- mbDynEnabled / mbDynPosition / mbDynThreshold / mbDynAttack / mbDynRelease / mbDynStrength
-- mbDynAmounts
+- Pre EQ：先做低频互混，再进 EQ
+- Post EQ：先做 EQ，再做低频互混
 
-## 7. 模块拆分（本次重构）
+## 9. 模块拆分状态
 
-为降低 `play_dsp_common.c` 的耦合，已完成模块拆分：
+已拆分模块：
 
-- `src/play_eq_linear.h/.c`
-  - 线性模式增益映射接口（当前为 dB 直通）
-- `src/play_eq_dynamic.h/.c`
-  - 动态 EQ 包络更新与衰减计算
-- `src/play_eq_normal.h/.c`
-  - peaking 与 12 dB/oct lowpass 系数构建
-- `src/play_multiband_dynamics.h/.c`
-  - 8 段多段动态处理与配置/拷贝接口
+- src/play_eq_linear.h/.c
+- src/play_eq_dynamic.h/.c
+- src/play_eq_normal.h/.c
+- src/play_multiband_dynamics.h/.c
+- src/play_pipeline.h/.c
+- src/play_pipeline_eq_stages.h/.c
 
-`src/play_dsp_common.c` 现在主要负责：
+其中主链路编排集中在 src/play_dsp_common.c。
 
-- 链路编排
-- 状态管理
-- 对外 API
-- 分析数据更新
+## 10. 构建与回归建议
 
-## 8. CMake 构建变化
+推荐最小回归命令：
 
-`CMakeLists.txt` 已将新增模块加入两个目标：
+```bash
+cmake -S . -B build
+cmake --build build --target run_eq_unit_tests verify_eq_taps verify_eq_gain play_macos play_mcu -j 4
+./verify_eq_taps
+./verify_eq_gain
+```
 
-- `play_macos`
-- `play_mcu`
+建议关注：
 
-新增编译单元：
-
-- `src/play_eq_linear.c`
-- `src/play_eq_dynamic.c`
-- `src/play_eq_normal.c`
-- `src/play_multiband_dynamics.c`
-
-## 9. 调参建议
-
-1. 先用 Linear 区间（<=2k）定低频和主体密度。
-2. 再用 Dynamic 区间（2k~17k）控制存在感和齿音风险。
-3. 18k 高切按听感微调，避免过亮和尖锐超高频。
-4. 最后启用 MB dyn，先小幅设置（如 +/-1~2dB），观察 Applied 曲线是否稳定跟随。
+- test_pipeline_chain 是否通过（阶段顺序/启停回归）
+- verify_eq_taps 是否通过（tap 时序与准确性）

@@ -6,27 +6,43 @@
 miniaudiodemo/
 ├── CMakeLists.txt
 ├── miniaudio_guide.md
-├── test.wav              ← 音频文件放在项目根目录
-└── src/
-    ├── main.c            ← 应用逻辑
-    ├── miniaudio.c       ← 仅含 #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio.h"
-    └── miniaudio.h       ← 单头文件库（不要修改）
+├── src/
+│   ├── main.c
+│   ├── play_macos.c
+│   ├── play_mcu.c
+│   ├── play_dsp_common.c
+│   ├── play_pipeline.c
+│   ├── play_pipeline_eq_stages.c
+│   ├── play_eq_linear.c
+│   ├── play_eq_dynamic.c
+│   ├── play_eq_normal.c
+│   ├── play_multiband_dynamics.c
+│   ├── verify_eq_gain.c
+│   ├── verify_eq_taps.c
+│   ├── miniaudio.c        ← 仅含 #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio.h"
+│   └── miniaudio.h        ← 单头文件库（不要修改）
+└── tests/
+    ├── test_eq_linear.c
+    ├── test_eq_dynamic.c
+    ├── test_eq_normal.c
+    └── test_pipeline_chain.c
 ```
 
 ## 编译与运行
 
 ```bash
-# 首次配置（只需一次）
+# 首次配置
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-# 每次修改代码后重新编译
-make -C build
+# 构建一个或多个目标
+cmake --build build --target miniaudiodemo play_macos play_mcu -j 4
 
-# 运行（必须在项目根目录，test.wav 是相对路径）
+# 运行示例
 ./miniaudiodemo
+./play_macos
 ```
 
-> **注意**：构建后可执行文件会自动复制到项目根目录，直接 `./miniaudiodemo` 即可，不需要 `cd build`。
+> 注意：构建后可执行文件会自动复制到项目根目录，可直接运行，不需要切换到 build 目录。
 
 ---
 

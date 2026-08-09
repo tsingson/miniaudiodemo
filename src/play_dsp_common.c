@@ -58,13 +58,6 @@ static void update_low_crossfeed_coeff(play_dsp_state* state)
     state->lowCrossfeedLpA = expf(-w);
 }
 
-static float low_crossfeed_lp_process(play_dsp_state* state, uint32_t ch, float x)
-{
-    float y = (1.0f - state->lowCrossfeedLpA) * x + state->lowCrossfeedLpA * state->lowCrossfeedLpState[ch];
-    state->lowCrossfeedLpState[ch] = y;
-    return y;
-}
-
 static void rebuild_eq(play_dsp_state* state)
 {
     play_eq_assign_band_modes(state);
@@ -348,6 +341,11 @@ static void update_spectrum(play_dsp_state* state)
     }
 }
 
+static void observer_window_complete(play_dsp_state* state)
+{
+    update_spectrum(state);
+}
+
 int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
 {
     memset(state, 0, sizeof(*state));
@@ -546,11 +544,22 @@ void play_dsp_get_dynamic_params(const play_dsp_state* state,
 
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels)
 {
+    play_pipeline prePipeline;
     play_pipeline eqPipeline;
+    play_pipeline postPipeline;
+    play_observer_metrics observerMetrics;
+    play_observer_stage observerRawInStage;
+    play_observer_stage observerEqInStage;
+    play_observer_stage observerEqOutStage;
+    play_observer_stage observerOutStage;
     play_eq_stage_profile profile;
+    play_crossfeed_stage preCrossfeedStage;
+    play_mbdyn_stage preMbDynStage;
     play_linear_eq_stage linearStage;
     play_dynamic_eq_stage dynamicStage;
     play_normal_eq_stage normalStage;
+    play_mbdyn_stage postMbDynStage;
+    play_crossfeed_stage postCrossfeedStage;
 
     play_eq_stage_profile_init(&profile,
                                state->sampleRate,
@@ -587,136 +596,112 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                               (uint8_t)PLAY_EQ_MODE_LINEAR,
                               (uint8_t)PLAY_EQ_MODE_NORMAL);
 
+    play_crossfeed_stage_init(&preCrossfeedStage, state, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
+    play_mbdyn_stage_init(&preMbDynStage, state, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
+    play_mbdyn_stage_init(&postMbDynStage, state, (uint8_t)PLAY_CROSSFEED_POST_EQ);
+    play_crossfeed_stage_init(&postCrossfeedStage, state, (uint8_t)PLAY_CROSSFEED_POST_EQ);
+    play_observer_stage_init(&observerRawInStage,
+                             state,
+                             &observerMetrics,
+                             PLAY_OBSERVER_INPUT_RAW,
+                             NULL);
+    play_observer_stage_init(&observerEqInStage,
+                             state,
+                             &observerMetrics,
+                             PLAY_OBSERVER_INPUT_EQ,
+                             NULL);
+    play_observer_stage_init(&observerEqOutStage,
+                             state,
+                             &observerMetrics,
+                             PLAY_OBSERVER_OUTPUT_EQ,
+                             NULL);
+    play_observer_stage_init(&observerOutStage,
+                             state,
+                             &observerMetrics,
+                             PLAY_OBSERVER_OUTPUT_FINAL,
+                             observer_window_complete);
+
     eq_pipeline_copy_from_state(state, &linearStage, &dynamicStage, &normalStage);
 
+    play_pipeline_init(&prePipeline);
+    (void)play_pipeline_add_stage(&prePipeline, "observe-input", 1, &observerRawInStage, play_observer_stage_process);
+    (void)play_pipeline_add_stage(&prePipeline,
+                                  "pre-crossfeed",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &preCrossfeedStage,
+                                  play_crossfeed_stage_process);
+    (void)play_pipeline_add_stage(&prePipeline,
+                                  "pre-mbdyn",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &preMbDynStage,
+                                  play_mbdyn_stage_process);
+    (void)play_pipeline_add_stage(&prePipeline, "observe-eq-in", 1, &observerEqInStage, play_observer_stage_process);
+
     play_pipeline_init(&eqPipeline);
-    (void)play_pipeline_add_stage(&eqPipeline, "linear-eq", 1, &linearStage, play_linear_eq_stage_process);
-    (void)play_pipeline_add_stage(&eqPipeline, "dynamic-eq", 1, &dynamicStage, play_dynamic_eq_stage_process);
-    (void)play_pipeline_add_stage(&eqPipeline, "normal-eq", 1, &normalStage, play_normal_eq_stage_process);
+    (void)play_pipeline_add_stage(&eqPipeline,
+                                  "linear-eq",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &linearStage,
+                                  play_linear_eq_stage_process);
+    (void)play_pipeline_add_stage(&eqPipeline,
+                                  "dynamic-eq",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &dynamicStage,
+                                  play_dynamic_eq_stage_process);
+    (void)play_pipeline_add_stage(&eqPipeline,
+                                  "normal-eq",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &normalStage,
+                                  play_normal_eq_stage_process);
+    (void)play_pipeline_add_stage(&eqPipeline, "observe-eq-out", 1, &observerEqOutStage, play_observer_stage_process);
+
+    play_pipeline_init(&postPipeline);
+    (void)play_pipeline_add_stage(&postPipeline,
+                                  "post-mbdyn",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &postMbDynStage,
+                                  play_mbdyn_stage_process);
+    (void)play_pipeline_add_stage(&postPipeline,
+                                  "post-crossfeed",
+                                  state->bypassEnabled ? 0 : 1,
+                                  &postCrossfeedStage,
+                                  play_crossfeed_stage_process);
+    (void)play_pipeline_add_stage(&postPipeline, "observe-output", 1, &observerOutStage, play_observer_stage_process);
 
     for (uint32_t i = 0; i < frameCount; ++i)
     {
-        float monoIn = 0.0f;
-        float monoEqIn = 0.0f;
-        float monoEqOut = 0.0f;
-        float monoOut = 0.0f;
-        float eqFrame[MAX_CHANNELS] = {0.0f, 0.0f};
-        float preCrossL = 0.0f;
-        float preCrossR = 0.0f;
-        float postCrossL = 0.0f;
-        float postCrossR = 0.0f;
-
-        if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
-            && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
-        {
-            float inL = interleavedFrames[i * channels + 0];
-            float inR = interleavedFrames[i * channels + 1];
-            float lowL = low_crossfeed_lp_process(state, 0, inL);
-            float lowR = low_crossfeed_lp_process(state, 1, inR);
-            preCrossL = inL + PLAY_LOW_CROSSFEED_RATIO * lowR;
-            preCrossR = inR + PLAY_LOW_CROSSFEED_RATIO * lowL;
-        }
+        float frameBuf[MAX_CHANNELS] = {0.0f, 0.0f};
+        play_frame_block block;
+        uint32_t pipelineChannels = (channels > MAX_CHANNELS) ? MAX_CHANNELS : channels;
 
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
             float inputSample = interleavedFrames[i * channels + ch];
-            float in;
-
-            monoIn += inputSample;
-
-            in = inputSample;
-
-            if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
-                && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
-            {
-                if (ch == 0u)
-                {
-                    in = preCrossL;
-                }
-                else if (ch == 1u)
-                {
-                    in = preCrossR;
-                }
-            }
-
-            if (!state->bypassEnabled && state->mbDynEnabled && ch < MAX_CHANNELS
-                && state->mbDynPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
-            {
-                play_mb_dyn_process_sample(state, ch, &in);
-            }
-
-            monoEqIn += in;
             if (ch < MAX_CHANNELS)
             {
-                eqFrame[ch] = in;
+                frameBuf[ch] = inputSample;
             }
         }
 
-        if (!state->bypassEnabled)
-        {
-            play_frame_block eqBlock;
+        observerMetrics.monoIn = 0.0f;
+        observerMetrics.monoEqIn = 0.0f;
+        observerMetrics.monoEqOut = 0.0f;
+        observerMetrics.monoOut = 0.0f;
 
-            eqBlock.interleaved = eqFrame;
-            eqBlock.frameCount = 1u;
-            eqBlock.channels = channels;
-            eqBlock.sampleRate = state->sampleRate;
-            (void)play_pipeline_run(&eqPipeline, &eqBlock);
-        }
+        block.interleaved = frameBuf;
+        block.frameCount = 1u;
+        block.channels = pipelineChannels;
+        block.sampleRate = state->sampleRate;
+        (void)play_pipeline_run(&prePipeline, &block);
+
+        (void)play_pipeline_run(&eqPipeline, &block);
+
+        (void)play_pipeline_run(&postPipeline, &block);
 
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            float in = (ch < MAX_CHANNELS) ? eqFrame[ch] : interleavedFrames[i * channels + ch];
-
-            if (!state->bypassEnabled && state->mbDynEnabled && ch < MAX_CHANNELS
-                && state->mbDynPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
-            {
-                play_mb_dyn_process_sample(state, ch, &in);
-            }
-
-            if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
-                && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
-            {
-                if (ch == 0u)
-                {
-                    float low = low_crossfeed_lp_process(state, 0, in);
-                    postCrossL = in;
-                    postCrossR = PLAY_LOW_CROSSFEED_RATIO * low;
-                }
-                else if (ch == 1u)
-                {
-                    float low = low_crossfeed_lp_process(state, 1, in);
-                    in += postCrossR;
-                    postCrossL += PLAY_LOW_CROSSFEED_RATIO * low;
-                }
-            }
-
-            monoEqOut += in;
-
-            interleavedFrames[i * channels + ch] = in;
-            monoOut += in;
-        }
-
-        if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u
-            && state->lowCrossfeedPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
-        {
-            interleavedFrames[i * channels + 0] = postCrossL;
-        }
-
-        monoIn /= (float)channels;
-        monoEqIn /= (float)channels;
-        monoEqOut /= (float)channels;
-        monoOut /= (float)channels;
-        state->preSamples[state->writeIndex] = monoIn;
-        state->eqTapInSamples[state->writeIndex] = monoEqIn;
-        state->eqTapOutSamples[state->writeIndex] = monoEqOut;
-        state->postSamples[state->writeIndex] = monoOut;
-        state->eqTapSeq += 1u;
-        state->writeIndex++;
-
-        if (state->writeIndex >= ANALYZER_WINDOW)
-        {
-            state->writeIndex = 0;
-            update_spectrum(state);
+            float outSample = (ch < MAX_CHANNELS) ? frameBuf[ch] : interleavedFrames[i * channels + ch];
+            interleavedFrames[i * channels + ch] = outSample;
         }
     }
 

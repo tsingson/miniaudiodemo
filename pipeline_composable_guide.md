@@ -37,40 +37,33 @@
 
 ### 3.1 数据单元
 
-建议定义统一帧块结构（可单样本，也可 N 帧批处理）：
+当前实现使用统一帧块结构 `play_frame_block`（可单样本，也可 N 帧批处理）：
 
 - sampleRate
 - channels
 - frameCount
-- interleavedSamples
-
-建议命名：PlayFrameBlock。
+- interleaved
 
 ### 3.2 阶段函数契约
 
-建议每个阶段统一函数签名：
+当前实现阶段函数签名为 `int (*process)(void* ctx, play_frame_block* block)`：
 
-- 输入：阶段上下文、只读配置、帧块
-- 输出：原地修改帧块或写入输出帧块
-- 返回：状态码（0 成功，非 0 表示失败）
-
-建议命名：PlayStageProcessFn。
+- 输入：阶段上下文 + 帧块
+- 输出：原地修改帧块
+- 返回：状态码（0 成功，非 0 失败）
 
 ### 3.3 阶段描述对象
 
-每个阶段用一个描述对象承载：
+每个阶段由 `play_pipeline_stage` 描述：
 
 - name：阶段名
 - enabled：开关
 - process：处理函数
 - ctx：阶段运行态
-- cfg：阶段配置
-
-建议命名：PlayPipelineStage。
 
 ### 3.4 Pipeline 容器
 
-Pipeline 容器维护有序阶段列表：
+Pipeline 容器 `play_pipeline` 维护有序阶段列表：
 
 - stages[]
 - stageCount
@@ -78,29 +71,75 @@ Pipeline 容器维护有序阶段列表：
 
 执行规则：
 
-- bypass 开启时可走短路路径
+- bypass 开启时短路返回
 - 否则按序调用每个 enabled 阶段
-
-建议命名：PlayPipeline。
 
 ## 4. 建议阶段划分
 
-建议将现有主链路拆成以下阶段（顺序可配置）：
+当前主链路阶段顺序如下（固定顺序，按 stage enabled 执行）：
 
-1. 输入观测阶段（采样前埋点）
+1. observe-input
 2. pre-crossfeed
-3. pre-multiband-dynamics
-4. linear-eq
-5. dynamic-eq
-6. normal-eq
-7. post-multiband-dynamics
-8. post-crossfeed
-9. 输出观测阶段（采样后埋点、频谱缓存）
+3. pre-mbdyn
+4. observe-eq-in
+5. linear-eq
+6. dynamic-eq
+7. normal-eq
+8. observe-eq-out
+9. post-mbdyn
+10. post-crossfeed
+11. observe-output
 
 说明：
 
 - 线性/动态/模拟 EQ 建议拆为 3 个独立 stage，而不是混在一个 stage。
 - 每个 stage 都应支持单独运行和单独测试。
+
+### 4.1 pre/post-mbdyn（多段动态压缩）说明
+
+当前 `pre-mbdyn` 与 `post-mbdyn` 使用同一处理函数 `play_mbdyn_stage_process`，通过 `mbDynPosition` 决定在 pre 还是 post 生效。
+
+处理要点（对应 `play_mb_dyn_process_sample`）：
+
+- 固定 8 个频带：`[20,80] [80,150] [150,300] [300,700] [700,1500] [1500,4000] [4000,10000] [10000,16000]`
+- 每个分频点使用一阶低通，得到 `low[i]`
+- 通过差分重建 band：
+  - `band0 = low0`
+  - `bandi = lowi - low(i-1)`
+  - `band7 = x - low6`
+- 每个 band 独立包络跟踪：上升走 `attack`，下降走 `release`
+- 当 `env > threshold` 且 `amountDb != 0` 时触发动态增减
+
+Applied dB 规则：
+
+- `over = env - threshold`
+- `delta = clamp(over * 24 * strength, 0, abs(amountDb))`
+- `amountDb >= 0` 时使用 `appliedDb = -delta`（压缩倾向）
+- `amountDb < 0` 时使用 `appliedDb = +delta`（扩展倾向）
+
+最后每个 band 乘上线性增益并求和回主信号，且 `mbDynBandAppliedDb[]` 做指数平滑，供观测层显示。
+
+### 4.2 pre/post-crossfeed（低频 mixed 左右声道路由）说明
+
+当前 `pre-crossfeed` 与 `post-crossfeed` 使用同一处理函数 `play_crossfeed_stage_process`，通过 `lowCrossfeedPosition` 决定在 pre 还是 post 生效。
+
+仅在双声道 (`channels >= 2`) 且开关开启时处理。
+
+路由过程：
+
+1. 对左右声道分别做一阶低通，提取低频：
+  - `lowL = LP(L)`
+  - `lowR = LP(R)`
+2. 低频互混写回：
+  - `L' = L + ratio * lowR`
+  - `R' = R + ratio * lowL`
+
+当前常量：
+
+- 低通截止：`PLAY_LOW_CROSSFEED_CUTOFF_HZ = 150Hz`
+- 混合比例：`PLAY_LOW_CROSSFEED_RATIO = 0.40`
+
+这实现的是“保留原通道主体 + 注入对侧低频”的低频 mixed 策略。
 
 ## 5. 三类 EQ 的函数式边界
 
@@ -259,6 +298,8 @@ MVP 通过后，再扩展到：
 - pre/post crossfeed
 - pre/post mb dynamics
 
+以上扩展项当前均已落地。
+
 ## 12. 结论
 
 本工程已经具备把主链路升级为可组合 pipeline 的关键前提。
@@ -276,7 +317,7 @@ MVP 通过后，再扩展到：
 
 ## 13. 当前实现状态（2026-08-09）
 
-当前代码已经完成 MVP 的第一轮落地：
+当前代码已经完成可组合主链路的第一轮完整落地：
 
 - 已新增通用 pipeline 框架：src/play_pipeline.h、src/play_pipeline.c
 - 已新增 EQ 三阶段 wrapper：src/play_pipeline_eq_stages.h、src/play_pipeline_eq_stages.c
@@ -285,8 +326,9 @@ MVP 通过后，再扩展到：
 
 主链路接入状态：
 
-- play_dsp_process 内部的 EQ 内核（linear/dynamic/normal）已切换为 pipeline 调度
-- crossfeed、multiband dynamics、analyzer/tap 仍保持原有外层编排
+- play_dsp_process 内部已切换为 pre/eq/post 三段 pipeline 编排
+- pre/post crossfeed 与 pre/post multiband dynamics 已封装为 stage 并接入统一 pipeline
+- analyzer/tap 已封装为 observer stages（input/eq-in/eq-out/output）
 - 对外 API 保持兼容
 
 当前验证结果：
@@ -296,6 +338,5 @@ MVP 通过后，再扩展到：
 
 后续建议：
 
-- 把 pre/post crossfeed 与 pre/post multiband dynamics 也封装为 stage，进入统一 pipeline
 - 给 pipeline 增加阶段统计（延迟、NaN、裁剪计数）
-- 新增双声道与阶段顺序扰动回归测试
+- 增加 observer 边界条件专项回归（窗口边界、跨帧一致性）

@@ -64,7 +64,8 @@ add_executable(test_pipeline_chain
                src/play_pipeline_eq_stages.c
                src/play_eq_linear.c
                src/play_eq_dynamic.c
-               src/play_eq_normal.c)
+               src/play_eq_normal.c
+               src/play_multiband_dynamics.c)
 target_include_directories(miniaudiodemo PRIVATE src)
 target_include_directories(three_way_macos PRIVATE src)
 target_include_directories(play_macos PRIVATE src)

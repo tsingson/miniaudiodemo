@@ -93,6 +93,42 @@ typedef struct
     uint8_t linearModeValue;
 } play_normal_eq_stage;
 
+typedef struct
+{
+    play_dsp_state* state;
+    uint8_t position;
+} play_crossfeed_stage;
+
+typedef struct
+{
+    play_dsp_state* state;
+    uint8_t position;
+} play_mbdyn_stage;
+
+typedef struct
+{
+    float monoIn;
+    float monoEqIn;
+    float monoEqOut;
+    float monoOut;
+} play_observer_metrics;
+
+typedef enum
+{
+    PLAY_OBSERVER_INPUT_RAW = 0,
+    PLAY_OBSERVER_INPUT_EQ = 1,
+    PLAY_OBSERVER_OUTPUT_EQ = 2,
+    PLAY_OBSERVER_OUTPUT_FINAL = 3
+} play_observer_stage_kind;
+
+typedef struct
+{
+    play_dsp_state* state;
+    play_observer_metrics* metrics;
+    play_observer_stage_kind kind;
+    void (*onWindowComplete)(play_dsp_state* state);
+} play_observer_stage;
+
 void play_eq_stage_profile_init(play_eq_stage_profile* profile,
                                 uint32_t sampleRate,
                                 uint32_t channels,
@@ -137,8 +173,19 @@ void play_normal_eq_stage_init(play_normal_eq_stage* stage,
                                uint8_t linearModeValue,
                                uint8_t normalModeValue);
 
+void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* state, uint8_t position);
+void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8_t position);
+void play_observer_stage_init(play_observer_stage* stage,
+                              play_dsp_state* state,
+                              play_observer_metrics* metrics,
+                              play_observer_stage_kind kind,
+                              void (*onWindowComplete)(play_dsp_state* state));
+
 int play_linear_eq_stage_process(void* ctx, play_frame_block* block);
 int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block);
 int play_normal_eq_stage_process(void* ctx, play_frame_block* block);
+int play_crossfeed_stage_process(void* ctx, play_frame_block* block);
+int play_mbdyn_stage_process(void* ctx, play_frame_block* block);
+int play_observer_stage_process(void* ctx, play_frame_block* block);
 
 #endif
