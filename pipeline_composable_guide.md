@@ -141,6 +141,51 @@ Applied dB 规则：
 
 这实现的是“保留原通道主体 + 注入对侧低频”的低频 mixed 策略。
 
+### 4.3 主链路信号流与关键公式（评审图）
+
+```mermaid
+flowchart LR
+    In[Input Frame] --> OI[observe-input]
+    OI --> PC[pre-crossfeed]
+    PC --> PM[pre-mbdyn]
+    PM --> OEI[observe-eq-in]
+    OEI --> LEQ[linear-eq]
+    LEQ --> DEQ[dynamic-eq]
+    DEQ --> NEQ[normal-eq]
+    NEQ --> OEO[observe-eq-out]
+    OEO --> PoM[post-mbdyn]
+    PoM --> PoC[post-crossfeed]
+    PoC --> OO[observe-output]
+    OO --> Out[Output Frame]
+
+    subgraph Crossfeed_Low_Mixed
+      C1[lowL = LP(L), lowR = LP(R)]
+      C2[L' = L + ratio * lowR]
+      C3[R' = R + ratio * lowL]
+      C1 --> C2 --> C3
+    end
+
+    subgraph MB_Dynamics
+      M1[Split 8 bands via LP + diff]
+      M2[env attack/release tracking]
+      M3[delta = clamp((env-thr)*24*strength, 0, |amount|)]
+      M4[appliedDb = -delta if amount>=0 else +delta]
+      M5[band *= 10^(appliedDb/20), then sum bands]
+      M1 --> M2 --> M3 --> M4 --> M5
+    end
+
+    PC -. uses .-> Crossfeed_Low_Mixed
+    PoC -. uses .-> Crossfeed_Low_Mixed
+    PM -. uses .-> MB_Dynamics
+    PoM -. uses .-> MB_Dynamics
+```
+
+图例说明：
+
+- `pre-crossfeed/post-crossfeed` 使用同一低频 mixed 路由公式，差异仅在链路位置。
+- `pre-mbdyn/post-mbdyn` 使用同一 8 段动态流程，差异仅在链路位置。
+- `observe-output` 负责写入 `pre/eqTap/post` 缓冲并推进 `eqTapSeq/writeIndex`，窗口满时触发频谱更新。
+
 ## 5. 三类 EQ 的函数式边界
 
 ### 5.1 线性 EQ
