@@ -1,262 +1,210 @@
-# play_dsp_state 结构体详解
+# play_dsp_state 结构与模块拆分说明
 
-本文档详细解释 src/play_dsp_common.h 中 play_dsp_state 的字段设计、运行时职责、生命周期，以及它和实时音频处理流程的对应关系。
+本文档说明当前 `play_dsp_state` 的真实结构、字段职责，以及本次将三类 EQ 与多段动态处理拆分到独立模块后的架构关系。
 
-## 1. 设计目标
+## 1. 结构体定位
 
-play_dsp_state 是整个 DSP 链路的单一运行时状态容器，统一承载：
+`play_dsp_state` 定义在 `src/play_dsp_common.h`，是整个音频处理链的统一运行时状态容器，负责保存：
 
-- 参数配置（EQ、动态参数、插件开关）
-- 滤波器内部状态（IIR 历史项、SVF 积分器）
-- 分析缓存（pre/post 频谱、相位差、群延迟）
-- 可选加速缓冲（CMSIS-DSP FFT）
+- 参数：EQ、Dynamic EQ、Crossfeed、Bypass、Multiband Dynamics、插件开关
+- 滤波器内部历史状态：Biquad / TPT-SVF / 多段动态分频 LP 状态
+- 可视化缓存：pre/post 频谱、dynamic reduction、MB applied、相位差、群延迟
 
-这样可以在音频回调线程中以最少开销访问状态，同时让 Web 控制接口只需要读写同一个对象。
+本次已将定义改为具名结构：
 
-## 2. 宏与容量约束（结构体字段维度来源）
+- `typedef struct play_dsp_state { ... } play_dsp_state;`
 
-这些宏定义决定了结构体数组大小和处理上限：
+这样模块头文件可以用前向声明 `typedef struct play_dsp_state play_dsp_state;` 安全引用。
 
-- ANALYZER_WINDOW = 512
-- ANALYZER_BINS = 48
-- MAX_CHANNELS = 2
-- EQ_BANDS = 8
+## 2. 容量与关键宏
+
+当前核心宏（`src/play_dsp_common.h`）：
+
+- `ANALYZER_WINDOW = 512`
+- `ANALYZER_BINS = 48`
+- `MAX_CHANNELS = 2`
+- `EQ_BANDS = 13`
+- `PLAY_MB_DYN_BANDS = 8`
+
+EQ 模式边界：
+
+- `EQ_LINEAR_MAX_HZ = 2000.0f`
+- `EQ_DYNAMIC_MAX_HZ = 17000.0f`
+- `>17000Hz` 进入 Normal 区
+- `>=18000Hz` 当前实现使用固定高切系数构建
+
+## 3. 字段分组详解
+
+### 3.1 基础音频上下文
+
+- `sampleRate`
+- `channels`
+
+用于系数重建、频谱映射、每帧循环边界控制。
+
+### 3.2 EQ 参数与模式
+
+- `bandFreqs[EQ_BANDS]`
+- `gainsDB[EQ_BANDS]`
+- `qValues[EQ_BANDS]`
+- `bandModes[EQ_BANDS]`
+- `bandUseSVF[EQ_BANDS]`
 
 含义：
 
-- 频谱分析每次基于 512 样本窗。
-- 输出 48 个对数分布频点。
-- 当前实现按最多 2 声道维护每段状态。
-- EQ 固定 8 段。
+- 三类 EQ 自动按频率分配模式（Linear/Dynamic/Normal）。
+- `bandUseSVF` 额外控制低频（<=1kHz）走 TPT-SVF 路径。
 
-## 3. 字段分组与职责
+### 3.3 Dynamic EQ 运行态
 
-### 3.1 基本音频上下文
-
-- uint32_t sampleRate
-- uint32_t channels
-
-作用：
-
-- 决定滤波系数计算和频点映射。
-- 约束每帧处理时的声道循环边界。
-
-特点：
-
-- 初始化后通常不频繁变动。
-
-### 3.2 EQ 参数与模式选择
-
-- float bandFreqs[EQ_BANDS]
-- float gainsDB[EQ_BANDS]
-- float qValues[EQ_BANDS]
-- uint8_t bandModes[EQ_BANDS]
-- uint8_t bandUseSVF[EQ_BANDS]
-
-作用：
-
-- 前三项是每段中心频率、增益、Q。
-- bandModes 表示每段模式：Linear / Dynamic / Normal。
-- bandUseSVF 表示该段是否走低频 SVF 路径（当前阈值由 EQ_LOW_SVF_MAX_HZ 控制）。
-
-### 3.3 动态 EQ 参数与实时包络状态
-
-- float dynamicEnv[EQ_BANDS][MAX_CHANNELS]
-- float dynamicReductionDB[EQ_BANDS]
-- float dynamicAttack
-- float dynamicRelease
-- float dynamicThreshold
-- float dynamicMaxReductionDB
-- float dynamicStrengthDB
-
-作用：
-
-- dynamicEnv 是每段每声道的包络跟踪状态。
-- dynamicReductionDB 是当前每段衰减量（供可视化使用）。
-- 其余参数控制动态压制行为。
-
-运行机制简述：
-
-- 动态模式段中，先更新包络，再根据阈值和强度计算衰减。
-- 每段衰减量做平滑回写到 dynamicReductionDB。
-
-### 3.4 功能开关与插件状态
-
-- uint32_t pluginMask
-- uint8_t bypassEnabled
-- uint8_t lowCrossfeedEnabled
-- uint8_t lowCrossfeedPosition
-
-作用：
-
-- pluginMask：位掩码开关，可扩展多个插件。
-- bypassEnabled：总旁路开关，打开时跳过所有 EQ 和 mixed 效果。
-- lowCrossfeedEnabled / lowCrossfeedPosition：低频串音混合开关与前后位置。
-
-关键语义：
-
-- bypass 只旁路处理路径，不清除已保存参数。
-- 关闭 bypass 后立即恢复当前参数对应的处理效果。
-
-### 3.5 低频 crossfeed 低通状态
-
-- float lowCrossfeedLpA
-- float lowCrossfeedLpState[MAX_CHANNELS]
-
-作用：
-
-- lowCrossfeedLpA 是一阶低通系数。
-- lowCrossfeedLpState 是每声道滤波历史状态。
+- `dynamicEnv[EQ_BANDS][MAX_CHANNELS]`
+- `dynamicReductionDB[EQ_BANDS]`
+- `dynamicAttack`
+- `dynamicRelease`
+- `dynamicThreshold`
+- `dynamicMaxReductionDB`
+- `dynamicStrengthDB`
 
 说明：
 
-- 这是 IIR 必需的跨样本记忆项，不能每帧重置。
+- `dynamicEnv` 是按段按声道的实时包络。
+- `dynamicReductionDB` 用于 Web 显示每段实时衰减。
 
-### 3.6 相位分析结果缓存
+### 3.4 全局效果控制
 
-- float phaseDeltaDeg[ANALYZER_BINS]
-- float groupDelayMs[ANALYZER_BINS]
+- `pluginMask`
+- `bypassEnabled`
+- `lowCrossfeedEnabled`
+- `lowCrossfeedPosition`
 
-作用：
+关键语义：
 
-- 保存每个频点的相位差和群延迟结果。
-- Web 接口可以直接读取，不用前端重复计算。
+- `bypassEnabled=1` 时旁路 EQ 与 mixed 处理，但不丢失参数。
+- 关闭 bypass 后恢复当前配置效果。
 
-### 3.7 Biquad 系数缓存
+### 3.5 低频 crossfeed 状态
 
-- double b0[EQ_BANDS]
-- double b1[EQ_BANDS]
-- double b2[EQ_BANDS]
-- double a1[EQ_BANDS]
-- double a2[EQ_BANDS]
+- `lowCrossfeedLpA`
+- `lowCrossfeedLpState[MAX_CHANNELS]`
 
-作用：
+用于低频一阶低通与通道间混合，支持 Pre/Post EQ 位置切换。
 
-- 存放每段 peaking EQ 的离散系数。
-- 参数变化时重建，实时路径只做乘加，避免回调中高开销三角函数。
+### 3.6 Multiband Dynamics 状态
 
-### 3.8 TPT-SVF 参数与积分器状态
+- `mbDynEnabled`
+- `mbDynPosition`
+- `mbDynThreshold`
+- `mbDynAttack`
+- `mbDynRelease`
+- `mbDynStrength`
+- `mbDynBandLowHz[PLAY_MB_DYN_BANDS]`
+- `mbDynBandHighHz[PLAY_MB_DYN_BANDS]`
+- `mbDynBandAmountDb[PLAY_MB_DYN_BANDS]`
+- `mbDynBandAppliedDb[PLAY_MB_DYN_BANDS]`
+- `mbDynEnv[PLAY_MB_DYN_BANDS][MAX_CHANNELS]`
+- `mbDynLpA[PLAY_MB_DYN_BANDS - 1]`
+- `mbDynLpState[PLAY_MB_DYN_BANDS - 1][MAX_CHANNELS]`
 
-- double svfG[EQ_BANDS]
-- double svfK[EQ_BANDS]
-- double svfA[EQ_BANDS]
-- double svfH[EQ_BANDS]
-- double svfIc1eq[EQ_BANDS][MAX_CHANNELS]
-- double svfIc2eq[EQ_BANDS][MAX_CHANNELS]
+说明：
 
-作用：
+- Amount 是用户目标，Applied 是实时作用量（平滑后）。
+- 每个分频点用一阶 LP 分离频带，再进行每带动态增减。
 
-- 前四项是 SVF 段参数。
-- 后两项是每段每声道积分器状态。
+### 3.7 EQ 系数与滤波历史
 
-意义：
+Biquad：
 
-- 低频段使用 SVF 可获得更好的数值稳定性与控制手感。
+- `b0/b1/b2/a1/a2`
+- `x1/x2/y1/y2`
 
-### 3.9 Biquad 运行时历史项
+TPT-SVF：
 
-- double x1[EQ_BANDS][MAX_CHANNELS]
-- double x2[EQ_BANDS][MAX_CHANNELS]
-- double y1[EQ_BANDS][MAX_CHANNELS]
-- double y2[EQ_BANDS][MAX_CHANNELS]
+- `svfG/svfK/svfA/svfH`
+- `svfIc1eq/svfIc2eq`
 
-作用：
+这些字段都是实时滤波“记忆状态”，不能随意清零。
 
-- IIR 结构历史输入输出样本。
-- 与系数共同定义当前滤波器状态。
+### 3.8 分析缓存
 
-### 3.10 频谱分析缓存
+- `preSamples/postSamples`
+- `writeIndex`
+- `preBins/postBins`
+- `binIndex`
+- `phaseDeltaDeg/groupDelayMs`
 
-- float preSamples[ANALYZER_WINDOW]
-- float postSamples[ANALYZER_WINDOW]
-- int writeIndex
-- float preBins[ANALYZER_BINS]
-- float postBins[ANALYZER_BINS]
-- int binIndex[ANALYZER_BINS]
+作用：将处理前后可观测数据直接缓存在 DSP 状态中，便于 Web 拉取。
 
-作用：
+## 4. 模块拆分后的职责边界
 
-- preSamples/postSamples：保存处理前后单声道观测样本窗。
-- writeIndex：循环写入指针。
-- preBins/postBins：频谱显示输出，含平滑。
-- binIndex：对数频率到 FFT/Goertzel 索引映射。
+### 4.1 src/play_eq_linear.h/.c
 
-### 3.11 CMSIS-DSP 可选加速区
+职责：Linear 模式映射。
 
-在 USE_CMSIS_DSP 条件下包含：
+- `play_eq_linear_map_gain_db(...)`
 
-- arm_rfft_fast_instance_f32 rfft
-- int rfftReady
-- float fftIn[ANALYZER_WINDOW]
-- float fftOut[ANALYZER_WINDOW]
-- float fftMag[ANALYZER_WINDOW / 2]
-- float fftLog[ANALYZER_WINDOW / 2]
+当前行为：直接返回滑杆 dB（不压缩）。
 
-作用：
+### 4.2 src/play_eq_dynamic.h/.c
 
-- 若初始化成功，频谱分析走 RFFT 加速路径。
-- 若失败，逻辑可回退到非 CMSIS 的 Goertzel 路径。
+职责：Dynamic EQ 的基础计算。
 
-## 4. 生命周期与调用路径
+- `play_eq_dynamic_update_env(...)`
+- `play_eq_dynamic_compute_reduction(...)`
 
-### 4.1 初始化阶段
+`play_dsp_common.c` 在处理每个 dynamic band 时调用这两个函数。
 
-由 play_dsp_init 完成：
+### 4.3 src/play_eq_normal.h/.c
 
-- 清零整个结构体。
-- 设置默认 EQ 频点、默认增益/Q、动态参数、crossfeed 默认值。
-- 生成频谱 bin 映射。
-- 重建 EQ/SVF 系数。
-- 初始化 CMSIS RFFT（若启用）。
+职责：Normal EQ / 高切系数构建。
 
-### 4.2 参数更新阶段
+- `play_eq_normal_build_peaking(...)`
+- `play_eq_normal_build_lowpass_12db(...)`
 
-由控制接口触发：
+`rebuild_eq(...)` 在 18k 节点调用 lowpass 构建函数。
 
-- play_dsp_set_eq_params 更新增益/Q，并触发模式分配与系数重建。
-- play_dsp_set_dynamic_params 更新动态参数。
-- play_dsp_set_low_crossfeed 更新低频混合开关和位置。
-- play_dsp_set_bypass 更新旁路状态。
-- play_dsp_set_plugin_enabled 更新插件掩码。
+### 4.4 src/play_multiband_dynamics.h/.c
 
-### 4.3 实时处理阶段
+职责：多段动态完整实现。
 
-由 play_dsp_process 在音频回调中执行：
+- 初始化：`play_mb_dyn_init(...)`
+- 配置：`play_mb_dyn_set/get_config(...)`
+- 参数复制：`play_mb_dyn_copy_*`
+- 核心处理：`play_mb_dyn_process_sample(...)`
 
-- 对每一帧、每一声道进行处理。
-- 根据 bypassEnabled 决定是否跳过 EQ 和 mixed 效果。
-- 在未 bypass 时按配置执行 pre/post crossfeed 与多段 EQ。
-- 更新 dynamicEnv、dynamicReductionDB。
-- 采集 pre/post 单声道样本到分析窗。
-- 写满 ANALYZER_WINDOW 后更新频谱与相位指标。
+### 4.5 src/play_dsp_common.c
 
-### 4.4 数据导出阶段
+职责：链路 orchestration 与 API 汇总。
 
-- play_dsp_copy_spectrum 导出 pre/post 频谱。
-- play_dsp_copy_dynamic_curve 导出动态段模式与衰减曲线。
-- play_dsp_copy_phase_metrics 导出相位差与群延迟。
-- play_dsp_copy_eq 导出 EQ 频点、增益、Q。
+- 管理默认参数
+- 分配 band 模式
+- 重建 EQ（调用上述模块）
+- 在 pre/post 位置插入 crossfeed 与 mb dyn
+- 输出频谱、动态曲线、相位指标
 
-## 5. 线程与一致性建议
+## 5. 处理流程（单样本单声道）
 
-当前使用方式是音频线程与控制线程共享同一个 play_dsp_state，并通过外层互斥锁保护访问。
+1. 输入样本
+2. 可选 MB dyn pre
+3. 可选 crossfeed pre
+4. 13 段 EQ（SVF/Biquad + dynamic control）
+5. 可选 crossfeed post
+6. 可选 MB dyn post
+7. 写回并更新分析缓存
 
-建议保持以下原则：
+这保证了链路行为更清晰、可预测，也更容易在 Web 端解释“目标曲线 vs 实效曲线”。
 
-- 所有 setter/getter 与 process 调用都在同一把互斥锁保护下执行。
-- 不要在未加锁情况下直接修改结构体字段。
-- 避免在音频回调里做复杂内存分配或字符串操作。
+## 6. 与文档/接口一致性
 
-## 6. 为什么这个结构体设计有效
+当前 API 已覆盖并暴露：
 
-- 单一真值源：参数、状态、分析结果集中管理。
-- 实时友好：重计算集中在参数更新阶段，回调路径以乘加和状态推进为主。
-- 可扩展：pluginMask 与条件编译使插件和平台加速可增量扩展。
-- 可观测：pre/post 与相位指标都内建缓存，便于 Web 可视化和调试。
+- 三类 EQ 参数
+- dynamic 参数
+- bypass/crossfeed
+- multiband dynamics 配置与 band 数据
+- dynamic reduction + mb applied 实时数据
 
-## 7. 当前版本重点（与最近改动相关）
+因此前端可以同时呈现：
 
-- 已支持 bypassEnabled 全局旁路。
-- bypass 打开时播放原始音频；关闭后恢复原参数对应效果。
-- lowCrossfeed 与 EQ 参数在 bypass 期间仍被保留，不会丢失。
-- pre/post 频谱仍可持续反映当前处理路径状态，便于观测开关影响。
+- 静态目标（EQ/MB Target）
+- 动态实效（Dynamic Reduction/MB Applied）
+

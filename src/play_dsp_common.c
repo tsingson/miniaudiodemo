@@ -1,4 +1,8 @@
 #include "play_dsp_common.h"
+#include "play_eq_dynamic.h"
+#include "play_eq_linear.h"
+#include "play_eq_normal.h"
+#include "play_multiband_dynamics.h"
 
 #ifdef USE_CMSIS_DSP
 #include "arm_math.h"
@@ -110,25 +114,9 @@ static void rebuild_eq(play_dsp_state* state)
         double q = state->qValues[i];
         double frequency = state->bandFreqs[i];
         uint8_t mode = state->bandModes[i];
-        double a;
-        double w0;
-        double cosw0;
-        double sinw0;
-        double alpha;
-        double b0;
-        double b1;
-        double b2;
-        double a0;
-        double a1;
-        double a2;
-
         if (mode == (uint8_t)PLAY_EQ_MODE_LINEAR)
         {
-            /*
-             * Keep slider gain in dB unchanged for linear bands.
-             * "Linear" here means static (non-dynamic) processing, not gain compression.
-             */
-            gainDB = state->gainsDB[i];
+            gainDB = play_eq_linear_map_gain_db(state->gainsDB[i]);
         }
 
         state->bandUseSVF[i] = (frequency <= (double)EQ_LOW_SVF_MAX_HZ) ? 1u : 0u;
@@ -149,55 +137,26 @@ static void rebuild_eq(play_dsp_state* state)
 
         if (frequency >= 18000.0)
         {
-            double qLp = 0.70710678118;
-            w0 = 2.0 * M_PI * frequency / (double)state->sampleRate;
-#ifdef USE_CMSIS_DSP
-            cosw0 = arm_cos_f32((float32_t)w0);
-            sinw0 = arm_sin_f32((float32_t)w0);
-#else
-            cosw0 = cos(w0);
-            sinw0 = sin(w0);
-#endif
-            alpha = sinw0 / (2.0 * qLp);
-
-            b0 = (1.0 - cosw0) * 0.5;
-            b1 = 1.0 - cosw0;
-            b2 = (1.0 - cosw0) * 0.5;
-            a0 = 1.0 + alpha;
-            a1 = -2.0 * cosw0;
-            a2 = 1.0 - alpha;
-
-            state->b0[i] = b0 / a0;
-            state->b1[i] = b1 / a0;
-            state->b2[i] = b2 / a0;
-            state->a1[i] = a1 / a0;
-            state->a2[i] = a2 / a0;
+            play_eq_normal_build_lowpass_12db(frequency,
+                              (double)state->sampleRate,
+                              0.70710678118,
+                              &state->b0[i],
+                              &state->b1[i],
+                              &state->b2[i],
+                              &state->a1[i],
+                              &state->a2[i]);
             continue;
         }
 
-        a = pow(10.0, gainDB / 40.0);
-        w0 = 2.0 * M_PI * frequency / (double)state->sampleRate;
-#ifdef USE_CMSIS_DSP
-        cosw0 = arm_cos_f32((float32_t)w0);
-        sinw0 = arm_sin_f32((float32_t)w0);
-#else
-        cosw0 = cos(w0);
-        sinw0 = sin(w0);
-#endif
-        alpha = sinw0 / (2.0 * q);
-
-        b0 = 1.0 + alpha * a;
-        b1 = -2.0 * cosw0;
-        b2 = 1.0 - alpha * a;
-        a0 = 1.0 + alpha / a;
-        a1 = -2.0 * cosw0;
-        a2 = 1.0 - alpha / a;
-
-        state->b0[i] = b0 / a0;
-        state->b1[i] = b1 / a0;
-        state->b2[i] = b2 / a0;
-        state->a1[i] = a1 / a0;
-        state->a2[i] = a2 / a0;
+        play_eq_normal_build_peaking(gainDB,
+                         q,
+                         frequency,
+                         (double)state->sampleRate,
+                         &state->b0[i],
+                         &state->b1[i],
+                         &state->b2[i],
+                         &state->a1[i],
+                         &state->a2[i]);
     }
 }
 
@@ -421,6 +380,7 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->bypassEnabled = 0u;
     state->lowCrossfeedEnabled = 0u;
     state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    play_mb_dyn_init(state);
     update_low_crossfeed_coeff(state);
 
     assign_band_modes(state);
@@ -524,6 +484,51 @@ void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, ui
     }
 }
 
+void play_dsp_set_multiband_dynamics_config(play_dsp_state* state,
+                                            int enabled,
+                                            uint8_t position,
+                                            float threshold,
+                                            float attack,
+                                            float release,
+                                            float strength)
+{
+    play_mb_dyn_set_config(state, enabled, position, threshold, attack, release, strength);
+}
+
+void play_dsp_get_multiband_dynamics_config(const play_dsp_state* state,
+                                            int* outEnabled,
+                                            uint8_t* outPosition,
+                                            float* outThreshold,
+                                            float* outAttack,
+                                            float* outRelease,
+                                            float* outStrength)
+{
+    play_mb_dyn_get_config(state, outEnabled, outPosition, outThreshold, outAttack, outRelease, outStrength);
+}
+
+void play_dsp_set_multiband_dynamics_amounts(play_dsp_state* state, const float* amountsDb, int count)
+{
+    play_mb_dyn_set_amounts(state, amountsDb, count);
+}
+
+void play_dsp_copy_multiband_dynamics_amounts(const play_dsp_state* state, float* outAmountsDb, int maxCount)
+{
+    play_mb_dyn_copy_amounts(state, outAmountsDb, maxCount);
+}
+
+void play_dsp_copy_multiband_dynamics_applied_db(const play_dsp_state* state, float* outAppliedDb, int maxCount)
+{
+    play_mb_dyn_copy_applied_db(state, outAppliedDb, maxCount);
+}
+
+void play_dsp_copy_multiband_dynamics_bands(const play_dsp_state* state,
+                                            float* outBandLowHz,
+                                            float* outBandHighHz,
+                                            int maxCount)
+{
+    play_mb_dyn_copy_bands(state, outBandLowHz, outBandHighHz, maxCount);
+}
+
 void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled)
 {
     if (enabled)
@@ -612,6 +617,12 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 }
             }
 
+            if (!state->bypassEnabled && state->mbDynEnabled && ch < MAX_CHANNELS
+                && state->mbDynPosition == (uint8_t)PLAY_CROSSFEED_PRE_EQ)
+            {
+                play_mb_dyn_process_sample(state, ch, &in);
+            }
+
             if (!state->bypassEnabled && ch < MAX_CHANNELS)
             {
                 for (int band = 0; band < EQ_BANDS; ++band)
@@ -638,20 +649,18 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                     {
                         float env = state->dynamicEnv[band][ch];
                         float absOut = fabsf((float)out);
-                        float coeff = (absOut > env) ? state->dynamicAttack : state->dynamicRelease;
-                        float reductionDb = 0.0f;
+                        float reductionDb;
 
-                        env += coeff * (absOut - env);
+                        env = play_eq_dynamic_update_env(env, absOut, state->dynamicAttack, state->dynamicRelease);
                         state->dynamicEnv[band][ch] = env;
 
-                        if (state->gainsDB[band] > 0.0f && env > state->dynamicThreshold)
+                        reductionDb = play_eq_dynamic_compute_reduction(env,
+                                                                        state->dynamicThreshold,
+                                                                        state->dynamicStrengthDB,
+                                                                        state->dynamicMaxReductionDB,
+                                                                        state->gainsDB[band] > 0.0f);
+                        if (reductionDb > 0.0f)
                         {
-                            float over = (env - state->dynamicThreshold);
-                            reductionDb = over * state->dynamicStrengthDB;
-                            if (reductionDb > state->dynamicMaxReductionDB)
-                            {
-                                reductionDb = state->dynamicMaxReductionDB;
-                            }
                             out *= db_to_linear(-reductionDb);
                         }
 
@@ -660,6 +669,12 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
 
                     in = (float)out;
                 }
+            }
+
+            if (!state->bypassEnabled && state->mbDynEnabled && ch < MAX_CHANNELS
+                && state->mbDynPosition == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+            {
+                play_mb_dyn_process_sample(state, ch, &in);
             }
 
             if (!state->bypassEnabled && state->lowCrossfeedEnabled && channels >= 2u

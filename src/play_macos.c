@@ -303,7 +303,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
 
     if (strncmp(req, "GET /eq", 7) == 0)
     {
-        char body[4096];
+        char body[8192];
         float freqs[EQ_BANDS];
         float gains[EQ_BANDS];
         float qs[EQ_BANDS];
@@ -314,6 +314,16 @@ static void handle_http_request(http_server_state* http, int clientFd)
         float dynamicThreshold;
         float dynamicMaxReductionDB;
         float dynamicStrengthDB;
+        int mbDynEnabled;
+        uint8_t mbDynPosition;
+        float mbDynThreshold;
+        float mbDynAttack;
+        float mbDynRelease;
+        float mbDynStrength;
+        float mbDynBandAmountDb[PLAY_MB_DYN_BANDS];
+        float mbDynBandAppliedDb[PLAY_MB_DYN_BANDS];
+        float mbDynBandLowHz[PLAY_MB_DYN_BANDS];
+        float mbDynBandHighHz[PLAY_MB_DYN_BANDS];
         int bypassEnabled;
         int lowCrossfeedEnabled;
         uint8_t lowCrossfeedPosition;
@@ -329,12 +339,25 @@ static void handle_http_request(http_server_state* http, int clientFd)
                                     &dynamicThreshold,
                                     &dynamicMaxReductionDB,
                                     &dynamicStrengthDB);
+        play_dsp_get_multiband_dynamics_config(&http->app->dsp,
+                               &mbDynEnabled,
+                               &mbDynPosition,
+                               &mbDynThreshold,
+                               &mbDynAttack,
+                               &mbDynRelease,
+                               &mbDynStrength);
+        play_dsp_copy_multiband_dynamics_amounts(&http->app->dsp, mbDynBandAmountDb, PLAY_MB_DYN_BANDS);
+        play_dsp_copy_multiband_dynamics_applied_db(&http->app->dsp, mbDynBandAppliedDb, PLAY_MB_DYN_BANDS);
+        play_dsp_copy_multiband_dynamics_bands(&http->app->dsp,
+                               mbDynBandLowHz,
+                               mbDynBandHighHz,
+                               PLAY_MB_DYN_BANDS);
         bypassEnabled = play_dsp_get_bypass(&http->app->dsp);
         play_dsp_get_low_crossfeed(&http->app->dsp, &lowCrossfeedEnabled, &lowCrossfeedPosition);
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
-                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"freqs\":[",
+                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"mbDynEnabled\":%s,\"mbDynPosition\":%u,\"mbDynThreshold\":%.4f,\"mbDynAttack\":%.4f,\"mbDynRelease\":%.4f,\"mbDynStrength\":%.3f,\"mbDynBandMinDB\":%.1f,\"mbDynBandMaxDB\":%.1f,\"mbDynThresholdMin\":%.3f,\"mbDynThresholdMax\":%.3f,\"mbDynAttackMin\":%.4f,\"mbDynAttackMax\":%.3f,\"mbDynReleaseMin\":%.3f,\"mbDynReleaseMax\":%.3f,\"mbDynStrengthMin\":%.2f,\"mbDynStrengthMax\":%.1f,\"freqs\":[",
                            EQ_MIN_GAIN_DB,
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
@@ -360,7 +383,23 @@ static void handle_http_request(http_server_state* http, int clientFd)
                            DYNAMIC_EQ_MIN_MAX_REDUCTION_DB,
                            DYNAMIC_EQ_MAX_MAX_REDUCTION_DB,
                            DYNAMIC_EQ_MIN_STRENGTH_DB,
-                           DYNAMIC_EQ_MAX_STRENGTH_DB);
+                           DYNAMIC_EQ_MAX_STRENGTH_DB,
+                           mbDynEnabled ? "true" : "false",
+                           (unsigned)mbDynPosition,
+                           mbDynThreshold,
+                           mbDynAttack,
+                           mbDynRelease,
+                           mbDynStrength,
+                           PLAY_MB_DYN_MIN_DB,
+                           PLAY_MB_DYN_MAX_DB,
+                           PLAY_MB_DYN_MIN_THRESHOLD,
+                           PLAY_MB_DYN_MAX_THRESHOLD,
+                           PLAY_MB_DYN_MIN_ATTACK,
+                           PLAY_MB_DYN_MAX_ATTACK,
+                           PLAY_MB_DYN_MIN_RELEASE,
+                           PLAY_MB_DYN_MAX_RELEASE,
+                           PLAY_MB_DYN_MIN_STRENGTH,
+                           PLAY_MB_DYN_MAX_STRENGTH);
         for (int i = 0; i < EQ_BANDS; ++i)
         {
             offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.0f", (i == 0) ? "" : ",", freqs[i]);
@@ -387,6 +426,30 @@ static void handle_http_request(http_server_state* http, int clientFd)
             offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",",
                                dynamicReductionDB[i]);
         }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"mbDynBandAmountDB\":[");
+        for (int i = 0; i < PLAY_MB_DYN_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",",
+                               mbDynBandAmountDb[i]);
+        }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"mbDynBandAppliedDB\":[");
+        for (int i = 0; i < PLAY_MB_DYN_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.2f", (i == 0) ? "" : ",",
+                               mbDynBandAppliedDb[i]);
+        }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"mbDynBandLowHz\":[");
+        for (int i = 0; i < PLAY_MB_DYN_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.0f", (i == 0) ? "" : ",",
+                               mbDynBandLowHz[i]);
+        }
+        offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "],\"mbDynBandHighHz\":[");
+        for (int i = 0; i < PLAY_MB_DYN_BANDS; ++i)
+        {
+            offset += snprintf(body + offset, sizeof(body) - (size_t)offset, "%s%.0f", (i == 0) ? "" : ",",
+                               mbDynBandHighHz[i]);
+        }
         pthread_mutex_unlock(&http->app->dspMutex);
 
         snprintf(body + offset, sizeof(body) - (size_t)offset, "]}");
@@ -408,8 +471,16 @@ static void handle_http_request(http_server_state* http, int clientFd)
         float bypassEnabledValue;
         float lowCrossfeedEnabledValue;
         float lowCrossfeedPositionValue;
+        float mbDynEnabledValue;
+        float mbDynPositionValue;
+        float mbDynThresholdValue;
+        float mbDynAttackValue;
+        float mbDynReleaseValue;
+        float mbDynStrengthValue;
+        float mbDynBandAmountDb[PLAY_MB_DYN_BANDS];
         int gainCount;
         int qCount;
+        int mbDynBandCount;
         bool hasDynamicAttack;
         bool hasDynamicRelease;
         bool hasDynamicThreshold;
@@ -419,6 +490,13 @@ static void handle_http_request(http_server_state* http, int clientFd)
         bool hasBypassEnabled;
         bool hasLowCrossfeedEnabled;
         bool hasLowCrossfeedPosition;
+        bool hasMbDynEnabled;
+        bool hasMbDynPosition;
+        bool hasMbDynThreshold;
+        bool hasMbDynAttack;
+        bool hasMbDynRelease;
+        bool hasMbDynStrength;
+        bool hasAnyMbDyn;
         bool hasAnyDynamic;
 
         if (bodyStart == NULL)
@@ -443,12 +521,21 @@ static void handle_http_request(http_server_state* http, int clientFd)
                                                              &lowCrossfeedEnabledValue);
         hasLowCrossfeedPosition = parse_float_value_from_json(bodyStart, "\"lowCrossfeedPosition\"",
                                                               &lowCrossfeedPositionValue);
+        hasMbDynEnabled = parse_float_value_from_json(bodyStart, "\"mbDynEnabled\"", &mbDynEnabledValue);
+        hasMbDynPosition = parse_float_value_from_json(bodyStart, "\"mbDynPosition\"", &mbDynPositionValue);
+        hasMbDynThreshold = parse_float_value_from_json(bodyStart, "\"mbDynThreshold\"", &mbDynThresholdValue);
+        hasMbDynAttack = parse_float_value_from_json(bodyStart, "\"mbDynAttack\"", &mbDynAttackValue);
+        hasMbDynRelease = parse_float_value_from_json(bodyStart, "\"mbDynRelease\"", &mbDynReleaseValue);
+        hasMbDynStrength = parse_float_value_from_json(bodyStart, "\"mbDynStrength\"", &mbDynStrengthValue);
+        mbDynBandCount = parse_float_array_from_json(bodyStart, "\"mbDynBandAmountDB\"", mbDynBandAmountDb,
+                                                     PLAY_MB_DYN_BANDS);
+        hasAnyMbDyn = hasMbDynEnabled || hasMbDynPosition || hasMbDynThreshold || hasMbDynAttack || hasMbDynRelease ||
+            hasMbDynStrength || mbDynBandCount > 0;
         hasAnyDynamic = hasDynamicAttack || hasDynamicRelease || hasDynamicThreshold || hasDynamicMaxReductionDB ||
             hasDynamicStrengthDB;
 
-        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasBypassEnabled && !
-            hasLowCrossfeedEnabled
-            && !hasLowCrossfeedPosition)
+        if (gainCount <= 0 && qCount <= 0 && !hasAnyDynamic && !hasPhasePluginEnabled && !hasBypassEnabled &&
+            !hasLowCrossfeedEnabled && !hasLowCrossfeedPosition && !hasAnyMbDyn)
         {
             send_http_response(clientFd, "application/json", "{\"ok\":false,\"reason\":\"invalid eq payload\"}");
             return;
@@ -535,6 +622,62 @@ static void handle_http_request(http_server_state* http, int clientFd)
 
             play_dsp_set_low_crossfeed(&http->app->dsp, currentEnabled, currentPosition);
         }
+
+        if (hasAnyMbDyn)
+        {
+            int currentEnabled = 0;
+            uint8_t currentPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+            float currentThreshold = PLAY_MB_DYN_DEFAULT_THRESHOLD;
+            float currentAttack = PLAY_MB_DYN_DEFAULT_ATTACK;
+            float currentRelease = PLAY_MB_DYN_DEFAULT_RELEASE;
+            float currentStrength = PLAY_MB_DYN_DEFAULT_STRENGTH;
+
+            play_dsp_get_multiband_dynamics_config(&http->app->dsp,
+                                                   &currentEnabled,
+                                                   &currentPosition,
+                                                   &currentThreshold,
+                                                   &currentAttack,
+                                                   &currentRelease,
+                                                   &currentStrength);
+
+            if (hasMbDynEnabled)
+            {
+                currentEnabled = (mbDynEnabledValue >= 0.5f) ? 1 : 0;
+            }
+            if (hasMbDynPosition)
+            {
+                currentPosition = (mbDynPositionValue >= 0.5f) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                                                               : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+            }
+            if (hasMbDynThreshold)
+            {
+                currentThreshold = mbDynThresholdValue;
+            }
+            if (hasMbDynAttack)
+            {
+                currentAttack = mbDynAttackValue;
+            }
+            if (hasMbDynRelease)
+            {
+                currentRelease = mbDynReleaseValue;
+            }
+            if (hasMbDynStrength)
+            {
+                currentStrength = mbDynStrengthValue;
+            }
+
+            play_dsp_set_multiband_dynamics_config(&http->app->dsp,
+                                                   currentEnabled,
+                                                   currentPosition,
+                                                   currentThreshold,
+                                                   currentAttack,
+                                                   currentRelease,
+                                                   currentStrength);
+            if (mbDynBandCount > 0)
+            {
+                play_dsp_set_multiband_dynamics_amounts(&http->app->dsp, mbDynBandAmountDb, mbDynBandCount);
+            }
+        }
         pthread_mutex_unlock(&http->app->dspMutex);
 
         send_http_response(clientFd, "application/json", "{\"ok\":true}");
@@ -555,13 +698,16 @@ static void handle_http_request(http_server_state* http, int clientFd)
             ".mode{font-size:10px;padding:1px 6px;border-radius:999px;background:#1f2937;color:#93c5fd;margin-left:6px;letter-spacing:.2px;}"
             ".qval{font-size:12px;color:#fca5a5}.row{display:flex;justify-content:space-between;align-items:center}"
             "@media(max-width:900px){.dyn{grid-template-columns:repeat(2,minmax(0,1fr));}.sliders{grid-template-columns:repeat(2,minmax(0,1fr));}}</style></head>"
-            "<body><div class='wrap'><h1>实时频谱 + 多段 EQ</h1><div class='sub'>拖拽橙色控制点或下方滑块，实时改变播放 EQ <label style='margin-left:12px;display:inline-block;'><input id='bp' type='checkbox'> Bypass DSP</label> <span id='bpv' class='val'>OFF</span></div>"
+            "<body><div class='wrap'><h1>实时频谱 + 多段EQ + 多段压缩</h1><div class='sub'>拖拽橙色控制点或下方滑块，实时改变播放 EQ</div>"
             "<div class='panel'><canvas id='c' width='1000' height='400'></canvas><div id='dyn' class='dyn'></div><div id='sliders' class='sliders'></div></div></div>"
             "<script>const c=document.getElementById('c');const g=c.getContext('2d');const slidersEl=document.getElementById('sliders');"
-            "const dynEl=document.getElementById('dyn');"
+            "const dynEl=document.getElementById('dyn');let eqDynPane=null,compDynPane=null,eqTabPanel=null,compTabPanel=null,tabEqBtn=null,tabCompBtn=null;"
             "let specPre=[];let specPost=[];let phaseDelta=[];let groupDelay=[];let phaseEnabled=false;let bypassEnabled=false;let lowCrossfeedEnabled=false;let lowCrossfeedPosition=0;let freqs=[];let gains=[];let qs=[];let modes=[];let dynReduction=[];let minGain=-12,maxGain=12,minQ=.3,maxQ=4,sampleRate=48000;"
             "let dyn={attack:.12,release:.02,threshold:.18,maxReductionDB:12,strengthDB:18};"
             "let dynRange={attackMin:.01,attackMax:.5,releaseMin:.005,releaseMax:.3,thresholdMin:.02,thresholdMax:1,maxReductionDBMin:0,maxReductionDBMax:24,strengthDBMin:1,strengthDBMax:36};"
+            "let mbDynEnabled=false,mbDynPosition=0;let mbDyn={threshold:.16,attack:.02,release:.06,strength:1.2};"
+            "let mbDynRange={thresholdMin:.01,thresholdMax:1,attackMin:.002,attackMax:.2,releaseMin:.005,releaseMax:.5,strengthMin:.1,strengthMax:8};"
+            "let mbDynBandAmountDB=[0,0,0,0,0,0,0,0],mbDynBandAppliedDB=[0,0,0,0,0,0,0,0],mbDynBandLowHz=[20,80,150,300,700,1500,4000,10000],mbDynBandHighHz=[80,150,300,700,1500,4000,10000,16000];"
             "let drag=-1;let lastPost=0;let lastSpectrumFetch=0;let spectrumPending=false;const spectrumFetchIntervalMs=25;"
             "const specMinDb=-36,specMaxDb=36;"
             "const fMin=20,fMax=20000;const displayFreqs=[20,30,40,50,60,70,80,90,100,160,280,300,400,500,600,1000,1250,1500,1600,1700,1800,2000,2500,3000,4000,5000,6000,7000,8000,10000,12000,14000,15000,16000,17000,18000,20000];function lx(f){return (Math.log(f)-Math.log(fMin))/(Math.log(fMax)-Math.log(fMin));}"
@@ -572,6 +718,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "function fmtFreq(f){if(f>=1000){const k=f/1000;const s=(Math.abs(k-Math.round(k))<1e-6)?String(Math.round(k)):k.toFixed(k<2?2:1).replace(/\\.0$/,'');return s+'k';}return String(f);}"
             "function spectrumDbAt(freq,bins){if(!bins||bins.length===0)return specMinDb;if(bins.length===1)return bins[0];const lf=Math.log(Math.max(fMin,Math.min(fMax,freq)));const t=(lf-Math.log(fMin))/(Math.log(fMax)-Math.log(fMin));const p=Math.max(0,Math.min(1,t))*(bins.length-1);const i0=Math.floor(p);const i1=Math.min(bins.length-1,i0+1);const f0=i0/(bins.length-1);const f1=i1/(bins.length-1);const l0=Math.log(fMin)+f0*(Math.log(fMax)-Math.log(fMin));const l1=Math.log(fMin)+f1*(Math.log(fMax)-Math.log(fMin));const x=(lf-l0)/(l1-l0+1e-12);const v=bins[i0]+(bins[i1]-bins[i0])*Math.max(0,Math.min(1,x));return Math.max(specMinDb,Math.min(specMaxDb,v));}"
             "function harmanTargetDbAt(freq){const fp=[20,60,100,200,500,1000,2000,3000,5000,8000,10000,12000,16000,20000];const dp=[6.0,5.2,4.2,2.6,1.0,0.0,-0.7,-1.4,-2.0,-2.6,-3.0,-3.4,-4.0,-4.8];if(freq<=fp[0])return dp[0];const n=fp.length-1;if(freq>=fp[n])return dp[n];for(let i=0;i<n;i++){const f0=fp[i],f1=fp[i+1];if(freq>=f0&&freq<=f1){const t=(Math.log(freq)-Math.log(f0))/(Math.log(f1)-Math.log(f0)+1e-12);return dp[i]+(dp[i+1]-dp[i])*t;}}return 0;}"
+            "function mbDynCurveDbAt(freq,vals){if(!vals||!vals.length||!mbDynBandLowHz.length||!mbDynBandHighHz.length)return 0;const n=Math.min(vals.length,mbDynBandLowHz.length,mbDynBandHighHz.length);if(n<=0)return 0;const c=[];for(let i=0;i<n;i++){c.push(Math.sqrt(Math.max(20,mbDynBandLowHz[i])*Math.max(20,mbDynBandHighHz[i])));}const map=i=>-(vals[i]||0);if(freq<=c[0])return map(0);if(freq>=c[n-1])return map(n-1);for(let i=0;i<n-1;i++){if(freq>=c[i]&&freq<=c[i+1]){const t=(Math.log(freq)-Math.log(c[i]))/(Math.log(c[i+1])-Math.log(c[i])+1e-12);return map(i)+(map(i+1)-map(i))*t;}}return map(n-1);}"
             "function dynamicReductionAt(freq){if(!freqs.length||!modes.length||!dynReduction.length)return 0;const pts=[];for(let i=0;i<freqs.length;i++){if(modes[i]===1){pts.push({f:freqs[i],r:Math.max(0,dynReduction[i]||0)});}}if(!pts.length)return 0;if(freq<=2000||freq>17000)return 0;if(freq<=pts[0].f)return pts[0].r;const last=pts.length-1;if(freq>=pts[last].f)return pts[last].r;for(let i=0;i<pts.length-1;i++){const p0=pts[i],p1=pts[i+1];if(freq>=p0.f&&freq<=p1.f){const t=(Math.log(freq)-Math.log(p0.f))/(Math.log(p1.f)-Math.log(p0.f)+1e-12);return p0.r+(p1.r-p0.r)*t;}}return 0;}"
             "function biquadMagAt(freq,f0,gainDb,q){const A=Math.pow(10,gainDb/40);const w0=2*Math.PI*f0/sampleRate;const alpha=Math.sin(w0)/(2*q);"
             "const b0=1+alpha*A,b1=-2*Math.cos(w0),b2=1-alpha*A,a0=1+alpha/A,a1=-2*Math.cos(w0),a2=1-alpha/A;"
@@ -586,16 +733,19 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "function drawGrid(){g.fillStyle='#0b1220';g.fillRect(0,0,c.width,c.height);g.strokeStyle='rgba(148,163,184,.22)';g.lineWidth=1;"
             "let lastLabelX=-1e9;displayFreqs.forEach(f=>{const x=xOfF(f);g.beginPath();g.moveTo(x,25);g.lineTo(x,c.height-40);g.stroke();if(x-lastLabelX>22){g.fillStyle='rgba(203,213,225,.82)';g.font='11px Avenir Next';g.fillText(fmtFreq(f),x-14,c.height-18);lastLabelX=x;}});"
             "for(let d=specMinDb;d<=specMaxDb;d+=3){const y=yOfDb(d);g.beginPath();g.moveTo(48,y);g.lineTo(c.width-42,y);g.stroke();g.fillStyle='rgba(148,163,184,.8)';g.fillText(d+'dB',8,y+4);}"
-            "g.fillStyle='#94a3b8';g.fillText('Pre-EQ',c.width-470,20);g.fillStyle='#22d3ee';g.fillText('Post-EQ',c.width-410,20);g.fillStyle='#facc15';g.fillText('Harman Ref',c.width-345,20);g.fillStyle='#34d399';g.fillText('Dynamic',c.width-265,20);g.fillStyle='#fb923c';g.fillText('EQ points',c.width-200,20);g.fillStyle='#e879f9';g.fillText('Estimated EQ',c.width-130,20);}"
-            "function draw(){drawGrid();const hp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];hp.push({x:xOfF(f),y:yOfDb(harmanTargetDbAt(f))});}splinePath(hp,'#facc15',1.8);if(specPre.length){const sp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];const db=spectrumDbAt(f,specPre);sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#94a3b8',1.8);}if(specPost.length){const sp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];const db=spectrumDbAt(f,specPost);sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#22d3ee',2.4);}"
+            "g.fillStyle='#94a3b8';g.fillText('Pre-EQ',c.width-690,20);g.fillStyle='#22d3ee';g.fillText('Post-EQ',c.width-630,20);g.fillStyle='#facc15';g.fillText('Harman Ref',c.width-565,20);g.fillStyle='#60a5fa';g.fillText('MB Target',c.width-485,20);g.fillStyle='#06b6d4';g.fillText('MB Applied',c.width-405,20);g.fillStyle='#34d399';g.fillText('Dynamic',c.width-325,20);g.fillStyle='#fb923c';g.fillText('EQ points',c.width-260,20);g.fillStyle='#e879f9';g.fillText('Estimated EQ',c.width-190,20);}"
+            "function draw(){drawGrid();const hp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];hp.push({x:xOfF(f),y:yOfDb(harmanTargetDbAt(f))});}splinePath(hp,'#facc15',1.8);const hasMbTarget=(mbDynBandAmountDB||[]).some(v=>Math.abs(v||0)>0.01)||mbDynEnabled;const hasMbApplied=(mbDynBandAppliedDB||[]).some(v=>Math.abs(v||0)>0.01)||mbDynEnabled;if(hasMbTarget){const mp=[];for(let i=0;i<180;i++){const t=i/179;const f=fMin*Math.pow(fMax/fMin,t);const db=mbDynCurveDbAt(f,mbDynBandAmountDB);mp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(mp,'#60a5fa',2.0);}if(hasMbApplied){const ma=[];for(let i=0;i<180;i++){const t=i/179;const f=fMin*Math.pow(fMax/fMin,t);const db=mbDynCurveDbAt(f,mbDynBandAppliedDB);ma.push({x:xOfF(f),y:yOfDb(db)});}splinePath(ma,'#06b6d4',2.0);}if(specPre.length){const sp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];const db=spectrumDbAt(f,specPre);sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#94a3b8',1.8);}if(specPost.length){const sp=[];for(let i=0;i<displayFreqs.length;i++){const f=displayFreqs[i];const db=spectrumDbAt(f,specPost);sp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(sp,'#22d3ee',2.4);}"
             "if(freqs.length&&modes.length&&dynReduction.length){const dp=[];for(let i=0;i<180;i++){const t=i/179;const f=fMin*Math.pow(fMax/fMin,t);const red=dynamicReductionAt(f);dp.push({x:xOfF(f),y:yOfDb(-red)});}splinePath(dp,'#34d399',2.0);}"
             "if(freqs.length&&gains.length&&qs.length){const rp=[];for(let i=0;i<140;i++){const t=i/139;const f=fMin*Math.pow(fMax/fMin,t);const db=Math.max(minGain,Math.min(maxGain,eqResponseDb(f)));rp.push({x:xOfF(f),y:yOfDb(db)});}splinePath(rp,'#e879f9',2.6);}"
             "if(freqs.length&&gains.length){const ep=freqs.map((f,i)=>({x:xOfF(f),y:yOfDb(gains[i]),f}));splinePath(ep,'#fb923c',3);"
             "ep.forEach(p=>{g.fillStyle='#f59e0b';g.beginPath();g.arc(p.x,p.y,6,0,Math.PI*2);g.fill();g.strokeStyle='#fed7aa';g.lineWidth=1;g.stroke();g.fillStyle='#ffe7cf';g.fillText((p.f>=1000?(p.f/1000).toFixed(p.f%1000?1:0)+'k':p.f)+'Hz',p.x-14,p.y-10);});}}"
-            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs,dynamicAttack:dyn.attack,dynamicRelease:dyn.release,dynamicThreshold:dyn.threshold,dynamicMaxReductionDB:dyn.maxReductionDB,dynamicStrengthDB:dyn.strengthDB,phasePluginEnabled:phaseEnabled?1:0,bypassEnabled:bypassEnabled?1:0,lowCrossfeedEnabled:lowCrossfeedEnabled?1:0,lowCrossfeedPosition:lowCrossfeedPosition})}).catch(()=>{});}"
+            "function schedulePost(){const now=Date.now();if(now-lastPost<60)return;lastPost=now;fetch('/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({gains,qs,dynamicAttack:dyn.attack,dynamicRelease:dyn.release,dynamicThreshold:dyn.threshold,dynamicMaxReductionDB:dyn.maxReductionDB,dynamicStrengthDB:dyn.strengthDB,phasePluginEnabled:phaseEnabled?1:0,bypassEnabled:bypassEnabled?1:0,lowCrossfeedEnabled:lowCrossfeedEnabled?1:0,lowCrossfeedPosition:lowCrossfeedPosition,mbDynEnabled:mbDynEnabled?1:0,mbDynPosition:mbDynPosition,mbDynThreshold:mbDyn.threshold,mbDynAttack:mbDyn.attack,mbDynRelease:mbDyn.release,mbDynStrength:mbDyn.strength,mbDynBandAmountDB:mbDynBandAmountDB})}).catch(()=>{});}"
             "function syncBypassUi(){const b=document.getElementById('bp');const v=document.getElementById('bpv');if(b)b.checked=!!bypassEnabled;if(v)v.textContent=bypassEnabled?'ON':'OFF';}"
             "function bindBypassUi(){const b=document.getElementById('bp');if(!b)return;b.addEventListener('change',()=>{bypassEnabled=!!b.checked;syncBypassUi();schedulePost();});syncBypassUi();}"
+            "function setupTabs(){const panel=c.parentElement;const toolbar=document.createElement('div');toolbar.style.margin='12px 0 10px';toolbar.style.display='flex';toolbar.style.justifyContent='space-between';toolbar.style.alignItems='center';toolbar.style.gap='10px';toolbar.style.flexWrap='wrap';toolbar.innerHTML='<div><label style=\"display:inline-block\"><input id=\"bp\" type=\"checkbox\"> Bypass DSP</label> <span id=\"bpv\" class=\"val\">OFF</span></div><div><button id=\"tabEq\" type=\"button\" style=\"background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:10px;padding:6px 12px;cursor:pointer\">多段 EQ</button> <button id=\"tabComp\" type=\"button\" style=\"background:#0f172a;color:#94a3b8;border:1px solid #334155;border-radius:10px;padding:6px 12px;cursor:pointer\">多段压缩</button></div>';panel.insertBefore(toolbar,dynEl);eqTabPanel=document.createElement('div');compTabPanel=document.createElement('div');eqTabPanel.style.marginTop='8px';compTabPanel.style.marginTop='8px';compTabPanel.style.display='none';eqDynPane=document.createElement('div');eqDynPane.className='dyn';compDynPane=document.createElement('div');compDynPane.className='dyn';eqTabPanel.appendChild(eqDynPane);eqTabPanel.appendChild(slidersEl);compTabPanel.appendChild(compDynPane);panel.insertBefore(eqTabPanel,dynEl);panel.insertBefore(compTabPanel,dynEl);dynEl.style.display='none';tabEqBtn=document.getElementById('tabEq');tabCompBtn=document.getElementById('tabComp');const setTab=(name)=>{const eqOn=name!=='comp';eqTabPanel.style.display=eqOn?'block':'none';compTabPanel.style.display=eqOn?'none':'block';if(tabEqBtn){tabEqBtn.style.background=eqOn?'#1e293b':'#0f172a';tabEqBtn.style.color=eqOn?'#e2e8f0':'#94a3b8';}if(tabCompBtn){tabCompBtn.style.background=eqOn?'#0f172a':'#1e293b';tabCompBtn.style.color=eqOn?'#94a3b8':'#e2e8f0';}};if(tabEqBtn)tabEqBtn.addEventListener('click',()=>setTab('eq'));if(tabCompBtn)tabCompBtn.addEventListener('click',()=>setTab('comp'));setTab('eq');}"
+            "function splitDynControlsByTab(){if(!eqDynPane||!compDynPane)return;eqDynPane.innerHTML='';compDynPane.innerHTML='';const cells=Array.from(dynEl.children);cells.forEach((cell,i)=>{if(i<7){eqDynPane.appendChild(cell);}else{compDynPane.appendChild(cell);}});}"
             "function buildDynamic(){const items=[{key:'attack',label:'Dyn Attack',min:dynRange.attackMin,max:dynRange.attackMax,step:0.001,digits:3},{key:'release',label:'Dyn Release',min:dynRange.releaseMin,max:dynRange.releaseMax,step:0.001,digits:3},{key:'threshold',label:'Threshold',min:dynRange.thresholdMin,max:dynRange.thresholdMax,step:0.005,digits:3},{key:'maxReductionDB',label:'Max Red (dB)',min:dynRange.maxReductionDBMin,max:dynRange.maxReductionDBMax,step:0.1,digits:1},{key:'strengthDB',label:'Strength (dB)',min:dynRange.strengthDBMin,max:dynRange.strengthDBMax,step:0.1,digits:1}];dynEl.innerHTML='';const phaseCell=document.createElement('div');phaseCell.className='cell';phaseCell.innerHTML='<div class=row><label>Phase Plugin</label><span class=val id=pv>'+(phaseEnabled?'ON':'OFF')+'</span></div><input id=pe type=checkbox '+(phaseEnabled?'checked':'')+'>';dynEl.appendChild(phaseCell);const pe=phaseCell.querySelector('#pe');const pv=phaseCell.querySelector('#pv');const upPhase=()=>{phaseEnabled=!!pe.checked;pv.textContent=phaseEnabled?'ON':'OFF';schedulePost();};pe.addEventListener('change',upPhase);const crossCell=document.createElement('div');crossCell.className='cell';crossCell.innerHTML='<div class=row><label>Low Crossfeed</label><span class=val id=cv>'+(lowCrossfeedEnabled?'ON':'OFF')+'</span></div><input id=ce type=checkbox '+(lowCrossfeedEnabled?'checked':'')+'><div class=row><label>Position</label><span class=val id=cpv>'+(lowCrossfeedPosition? 'Post EQ':'Pre EQ')+'</span></div><select id=cp><option value=0'+(lowCrossfeedPosition===0?' selected':'')+'>Pre EQ</option><option value=1'+(lowCrossfeedPosition===1?' selected':'')+'>Post EQ</option></select>';dynEl.appendChild(crossCell);const ce=crossCell.querySelector('#ce');const cv=crossCell.querySelector('#cv');const cp=crossCell.querySelector('#cp');const cpv=crossCell.querySelector('#cpv');const upCross=()=>{lowCrossfeedEnabled=!!ce.checked;lowCrossfeedPosition=parseInt(cp.value,10)||0;cv.textContent=lowCrossfeedEnabled?'ON':'OFF';cpv.textContent=lowCrossfeedPosition?'Post EQ':'Pre EQ';schedulePost();};ce.addEventListener('change',upCross);cp.addEventListener('change',upCross);items.forEach(it=>{const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<div class=row><label>'+it.label+'</label><span class=val id=dv_'+it.key+'></span></div><input id=ds_'+it.key+' type=range min='+it.min+' max='+it.max+' step='+it.step+' value='+dyn[it.key]+'>';dynEl.appendChild(cell);const s=cell.querySelector('#ds_'+it.key);const v=cell.querySelector('#dv_'+it.key);const upd=()=>{dyn[it.key]=parseFloat(s.value);v.textContent=dyn[it.key].toFixed(it.digits);schedulePost();};s.addEventListener('input',upd);upd();});}"
+            "function buildMbDyn(){const names=['20-80','80-150','150-300','300-700','700-1.5k','1.5k-4k','4k-10k','10k-16k'];const head=document.createElement('div');head.className='cell';head.innerHTML='<div class=row><label>MB Dyn</label><span class=val id=mbv>'+(mbDynEnabled?'ON':'OFF')+'</span></div><input id=mbe type=checkbox '+(mbDynEnabled?'checked':'')+'><div class=row><label>Position</label><span class=val id=mbpv>'+(mbDynPosition?'Post EQ':'Pre EQ')+'</span></div><select id=mbp><option value=0'+(mbDynPosition===0?' selected':'')+'>Pre EQ</option><option value=1'+(mbDynPosition===1?' selected':'')+'>Post EQ</option></select>';dynEl.appendChild(head);const mbe=head.querySelector('#mbe');const mbv=head.querySelector('#mbv');const mbp=head.querySelector('#mbp');const mbpv=head.querySelector('#mbpv');const upSwitch=()=>{mbDynEnabled=!!mbe.checked;mbDynPosition=parseInt(mbp.value,10)||0;mbv.textContent=mbDynEnabled?'ON':'OFF';mbpv.textContent=mbDynPosition?'Post EQ':'Pre EQ';schedulePost();};mbe.addEventListener('change',upSwitch);mbp.addEventListener('change',upSwitch);const gitems=[{k:'threshold',label:'MB Thres',min:mbDynRange.thresholdMin,max:mbDynRange.thresholdMax,step:0.005,d:3},{k:'attack',label:'MB Attack',min:mbDynRange.attackMin,max:mbDynRange.attackMax,step:0.001,d:3},{k:'release',label:'MB Release',min:mbDynRange.releaseMin,max:mbDynRange.releaseMax,step:0.001,d:3},{k:'strength',label:'MB Strength',min:mbDynRange.strengthMin,max:mbDynRange.strengthMax,step:0.05,d:2}];gitems.forEach(it=>{const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<div class=row><label>'+it.label+'</label><span class=val id=mbgv_'+it.k+'></span></div><input id=mbgs_'+it.k+' type=range min='+it.min+' max='+it.max+' step='+it.step+' value='+mbDyn[it.k]+'>';dynEl.appendChild(cell);const s=cell.querySelector('#mbgs_'+it.k);const v=cell.querySelector('#mbgv_'+it.k);const upd=()=>{mbDyn[it.k]=parseFloat(s.value);v.textContent=mbDyn[it.k].toFixed(it.d);schedulePost();};s.addEventListener('input',upd);upd();});for(let i=0;i<names.length;i++){const cell=document.createElement('div');cell.className='cell';cell.innerHTML='<div class=row><label>MB '+names[i]+' dB</label><span class=val id=mbav'+i+'></span></div><input id=mbas'+i+' type=range min=-6 max=6 step=0.1 value='+(mbDynBandAmountDB[i]||0)+'><div class=row><label>Applied</label><span class=val id=mbap'+i+'></span></div>';dynEl.appendChild(cell);const s=cell.querySelector('#mbas'+i);const v=cell.querySelector('#mbav'+i);const a=cell.querySelector('#mbap'+i);const upd=()=>{mbDynBandAmountDB[i]=parseFloat(s.value);v.textContent=mbDynBandAmountDB[i].toFixed(1);a.textContent=(mbDynBandAppliedDB[i]||0).toFixed(2)+' dB';schedulePost();};s.addEventListener('input',upd);upd();}}"
             "function buildSliders(){slidersEl.innerHTML='';freqs.forEach((f,i)=>{const cell=document.createElement('div');cell.className='cell';"
             "cell.innerHTML='<div class=row><label>'+ (f>=1000?(f/1000).toFixed(f%1000?1:0)+'k':f) +'Hz <span class=mode>'+modeText(modes[i],f)+'</span></label><span class=val id=v'+i+'></span></div><input id=sg'+i+' type=range min='+minGain+' max='+maxGain+' step=0.1 value='+gains[i]+'><div class=row><label>Q</label><span class=qval id=qv'+i+'></span></div><input id=sq'+i+' type=range min='+minQ+' max='+maxQ+' step=0.01 value='+qs[i]+'>';"
             "slidersEl.appendChild(cell);const sg=cell.querySelector('#sg'+i);const sq=cell.querySelector('#sq'+i);const v=cell.querySelector('#v'+i);const qv=cell.querySelector('#qv'+i);const upd=()=>{gains[i]=parseFloat(sg.value);qs[i]=parseFloat(sq.value);v.textContent=gains[i].toFixed(1)+' dB';qv.textContent=qs[i].toFixed(2);draw();schedulePost();};sg.addEventListener('input',upd);sq.addEventListener('input',upd);upd();});}"
@@ -603,7 +753,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
             "window.addEventListener('mousemove',e=>{if(drag<0)return;const r=c.getBoundingClientRect();const y=(e.clientY-r.top)*c.height/r.height;gains[drag]=Math.max(minGain,Math.min(maxGain,dbOfY(y)));const s=document.getElementById('sg'+drag);if(s)s.value=gains[drag];const v=document.getElementById('v'+drag);if(v)v.textContent=gains[drag].toFixed(1)+' dB';draw();schedulePost();});"
             "window.addEventListener('mouseup',()=>{drag=-1;});"
             "async function pollSpectrum(){const now=performance.now();if(!spectrumPending&&(now-lastSpectrumFetch)>=spectrumFetchIntervalMs){spectrumPending=true;lastSpectrumFetch=now;fetch('/spectrum').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;if(Array.isArray(j.preBins))specPre=j.preBins;if(Array.isArray(j.postBins))specPost=j.postBins;if(Array.isArray(j.phaseDeltaDeg))phaseDelta=j.phaseDeltaDeg;if(Array.isArray(j.groupDelayMs))groupDelay=j.groupDelayMs;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(Array.isArray(j.bins)&&!specPost.length)specPost=j.bins;}).catch(()=>{}).finally(()=>{spectrumPending=false;});}requestAnimationFrame(pollSpectrum);}"
-            "async function init(){bindBypassUi();try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;modes=Array.isArray(j.modes)?j.modes:freqs.map(f=>f<=2000?0:(f>17000?2:1));dynReduction=Array.isArray(j.dynamicReductionDB)?j.dynamicReductionDB:freqs.map(()=>0);minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);if(typeof j.dynamicAttack==='number')dyn.attack=j.dynamicAttack;if(typeof j.dynamicRelease==='number')dyn.release=j.dynamicRelease;if(typeof j.dynamicThreshold==='number')dyn.threshold=j.dynamicThreshold;if(typeof j.dynamicMaxReductionDB==='number')dyn.maxReductionDB=j.dynamicMaxReductionDB;if(typeof j.dynamicStrengthDB==='number')dyn.strengthDB=j.dynamicStrengthDB;if(typeof j.dynamicAttackMin==='number')dynRange.attackMin=j.dynamicAttackMin;if(typeof j.dynamicAttackMax==='number')dynRange.attackMax=j.dynamicAttackMax;if(typeof j.dynamicReleaseMin==='number')dynRange.releaseMin=j.dynamicReleaseMin;if(typeof j.dynamicReleaseMax==='number')dynRange.releaseMax=j.dynamicReleaseMax;if(typeof j.dynamicThresholdMin==='number')dynRange.thresholdMin=j.dynamicThresholdMin;if(typeof j.dynamicThresholdMax==='number')dynRange.thresholdMax=j.dynamicThresholdMax;if(typeof j.dynamicMaxReductionDBMin==='number')dynRange.maxReductionDBMin=j.dynamicMaxReductionDBMin;if(typeof j.dynamicMaxReductionDBMax==='number')dynRange.maxReductionDBMax=j.dynamicMaxReductionDBMax;if(typeof j.dynamicStrengthDBMin==='number')dynRange.strengthDBMin=j.dynamicStrengthDBMin;if(typeof j.dynamicStrengthDBMax==='number')dynRange.strengthDBMax=j.dynamicStrengthDBMax;syncBypassUi();buildSliders();buildDynamic();}}}catch(e){}if(!dynEl.children.length)buildDynamic();syncBypassUi();draw();pollSpectrum();setInterval(async()=>{try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.dynamicReductionDB))dynReduction=j.dynamicReductionDB;if(Array.isArray(j.modes))modes=j.modes;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);syncBypassUi();}}catch(e){}draw();},100);}init();"
+            "async function init(){setupTabs();bindBypassUi();try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.freqs)&&Array.isArray(j.gains)&&Array.isArray(j.qs)){freqs=j.freqs;gains=j.gains;qs=j.qs;modes=Array.isArray(j.modes)?j.modes:freqs.map(f=>f<=2000?0:(f>17000?2:1));dynReduction=Array.isArray(j.dynamicReductionDB)?j.dynamicReductionDB:freqs.map(()=>0);minGain=j.minGain;maxGain=j.maxGain;minQ=j.minQ;maxQ=j.maxQ;sampleRate=j.sampleRate||sampleRate;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);if(typeof j.dynamicAttack==='number')dyn.attack=j.dynamicAttack;if(typeof j.dynamicRelease==='number')dyn.release=j.dynamicRelease;if(typeof j.dynamicThreshold==='number')dyn.threshold=j.dynamicThreshold;if(typeof j.dynamicMaxReductionDB==='number')dyn.maxReductionDB=j.dynamicMaxReductionDB;if(typeof j.dynamicStrengthDB==='number')dyn.strengthDB=j.dynamicStrengthDB;if(typeof j.dynamicAttackMin==='number')dynRange.attackMin=j.dynamicAttackMin;if(typeof j.dynamicAttackMax==='number')dynRange.attackMax=j.dynamicAttackMax;if(typeof j.dynamicReleaseMin==='number')dynRange.releaseMin=j.dynamicReleaseMin;if(typeof j.dynamicReleaseMax==='number')dynRange.releaseMax=j.dynamicReleaseMax;if(typeof j.dynamicThresholdMin==='number')dynRange.thresholdMin=j.dynamicThresholdMin;if(typeof j.dynamicThresholdMax==='number')dynRange.thresholdMax=j.dynamicThresholdMax;if(typeof j.dynamicMaxReductionDBMin==='number')dynRange.maxReductionDBMin=j.dynamicMaxReductionDBMin;if(typeof j.dynamicMaxReductionDBMax==='number')dynRange.maxReductionDBMax=j.dynamicMaxReductionDBMax;if(typeof j.dynamicStrengthDBMin==='number')dynRange.strengthDBMin=j.dynamicStrengthDBMin;if(typeof j.dynamicStrengthDBMax==='number')dynRange.strengthDBMax=j.dynamicStrengthDBMax;if(typeof j.mbDynEnabled==='boolean')mbDynEnabled=j.mbDynEnabled;if(typeof j.mbDynPosition==='number')mbDynPosition=(j.mbDynPosition>=0.5?1:0);if(typeof j.mbDynThreshold==='number')mbDyn.threshold=j.mbDynThreshold;if(typeof j.mbDynAttack==='number')mbDyn.attack=j.mbDynAttack;if(typeof j.mbDynRelease==='number')mbDyn.release=j.mbDynRelease;if(typeof j.mbDynStrength==='number')mbDyn.strength=j.mbDynStrength;if(Array.isArray(j.mbDynBandAmountDB))mbDynBandAmountDB=j.mbDynBandAmountDB.slice(0,8);if(Array.isArray(j.mbDynBandAppliedDB))mbDynBandAppliedDB=j.mbDynBandAppliedDB.slice(0,8);if(Array.isArray(j.mbDynBandLowHz))mbDynBandLowHz=j.mbDynBandLowHz.slice(0,8);if(Array.isArray(j.mbDynBandHighHz))mbDynBandHighHz=j.mbDynBandHighHz.slice(0,8);if(typeof j.mbDynThresholdMin==='number')mbDynRange.thresholdMin=j.mbDynThresholdMin;if(typeof j.mbDynThresholdMax==='number')mbDynRange.thresholdMax=j.mbDynThresholdMax;if(typeof j.mbDynAttackMin==='number')mbDynRange.attackMin=j.mbDynAttackMin;if(typeof j.mbDynAttackMax==='number')mbDynRange.attackMax=j.mbDynAttackMax;if(typeof j.mbDynReleaseMin==='number')mbDynRange.releaseMin=j.mbDynReleaseMin;if(typeof j.mbDynReleaseMax==='number')mbDynRange.releaseMax=j.mbDynReleaseMax;if(typeof j.mbDynStrengthMin==='number')mbDynRange.strengthMin=j.mbDynStrengthMin;if(typeof j.mbDynStrengthMax==='number')mbDynRange.strengthMax=j.mbDynStrengthMax;buildSliders();buildDynamic();buildMbDyn();splitDynControlsByTab();}}}catch(e){}if(!dynEl.children.length){buildDynamic();buildMbDyn();splitDynControlsByTab();}syncBypassUi();draw();pollSpectrum();setInterval(async()=>{try{const r=await fetch('/eq');if(r.ok){const j=await r.json();if(Array.isArray(j.dynamicReductionDB))dynReduction=j.dynamicReductionDB;if(Array.isArray(j.modes))modes=j.modes;if(typeof j.phasePluginEnabled==='boolean')phaseEnabled=j.phasePluginEnabled;if(typeof j.bypassEnabled==='boolean')bypassEnabled=j.bypassEnabled;if(typeof j.lowCrossfeedEnabled==='boolean')lowCrossfeedEnabled=j.lowCrossfeedEnabled;if(typeof j.lowCrossfeedPosition==='number')lowCrossfeedPosition=(j.lowCrossfeedPosition>=0.5?1:0);if(typeof j.mbDynEnabled==='boolean')mbDynEnabled=j.mbDynEnabled;if(typeof j.mbDynPosition==='number')mbDynPosition=(j.mbDynPosition>=0.5?1:0);if(Array.isArray(j.mbDynBandAppliedDB))mbDynBandAppliedDB=j.mbDynBandAppliedDB.slice(0,8);syncBypassUi();if(compDynPane&&compDynPane.childElementCount){buildMbDyn();splitDynControlsByTab();}}}catch(e){}draw();},100);}init();"
             "</script></body></html>";
         send_http_response(clientFd, "text/html; charset=utf-8", page);
         return;

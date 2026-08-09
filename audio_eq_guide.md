@@ -1,356 +1,182 @@
 # Audio EQ Guide
 
-## Overview
+## 1. 当前能力概览
 
-This project implements a hybrid 3-mode EQ pipeline in shared DSP code so both host prototype (play_macos) and MCU entry (play_mcu) use identical audio behavior.
+本项目当前是一个可实时调参的音频处理链，核心特性如下：
 
-It also supports optional DSP plugins. The phase analyzer plugin can be enabled or disabled at runtime.
+- 13 段 EQ（包含新增 10k / 12k / 15k / 16k / 17k 频点）
+- 三种 EQ 模式自动分配（Linear / Dynamic / Normal）
+- 18kHz 节点改为固定高切（12 dB/oct，二阶低通）
+- 全局 bypass（打开后旁路 EQ 与 mixed 效果，但保留参数）
+- 低频 crossfeed（可开关，可选 Pre EQ / Post EQ）
+- 8 频段多段动态处理（multiband dynamics，范围 +/-6 dB）
+- Web 可视化同时显示 MB Target 与 MB Applied 曲线
+- 频谱图支持固定关键频点显示，并增加参考哈曼曲线
 
-It also supports optional low-frequency stereo crossfeed:
+主入口：
 
-- below 150 Hz low-pass content
-- add 30% of left low-band into right
-- add 30% of right low-band into left
-- processing position selectable: pre-EQ or post-EQ
+- host 端：`play_macos`
+- MCU 端：`play_mcu`
+- 共用 DSP：`src/play_dsp_common.c`
 
-The three mode rules are frequency based:
+## 2. 三类 EQ 规则
 
-- Linear EQ: frequency <= 2 kHz
-- Dynamic EQ: 2 kHz < frequency <= 16 kHz
-- Normal EQ: frequency > 16 kHz
+频段模式由频率自动决定：
 
-For low-frequency stability and musical behavior, the project also enables TPT-SVF for low EQ bands:
+- Linear: `f <= 2kHz`
+- Dynamic: `2kHz < f <= 17kHz`
+- Normal: `f > 17kHz`
 
-- TPT-SVF band processing: frequency <= 1 kHz
+对应宏定义见 `src/play_dsp_common.h`：
 
-These thresholds are defined in `src/play_dsp_common.h`:
+- `EQ_LINEAR_MAX_HZ = 2000.0f`
+- `EQ_DYNAMIC_MAX_HZ = 17000.0f`
 
-- `EQ_LINEAR_MAX_HZ` = 2000.0f
-- `EQ_DYNAMIC_MAX_HZ` = 16000.0f
-- `EQ_LOW_SVF_MAX_HZ` = 1000.0f
+### 2.1 Linear EQ
 
-## Signal Path
+- 线性模式不再做“压缩映射”，滑杆 dB 值直接作为目标增益。
+- 低频段（`<= 1kHz`）优先走 TPT-SVF bell 结构，提高低频稳定性与手感。
 
-For each frame and each channel, processing is done band-by-band in this order:
+### 2.2 Dynamic EQ
 
-1. Filter stage (hybrid):
-  - TPT-SVF bell path for low-frequency bands (<= 1 kHz)
-  - Biquad peaking path for other bands (> 1 kHz)
-2. Dynamic post-control (only dynamic-mode bands)
-3. Output write-back
+- 先做包络跟踪：
+  - `env += coeff * (abs(out) - env)`
+  - 上升用 `attack`，下降用 `release`
+- 当该段用户增益为正且超过阈值时，按强度计算动态衰减。
+- 衰减量受 `dynamicMaxReductionDB` 限幅。
 
-The spectrum analyzer uses the post-EQ signal, so Web visualization reflects the final processed output.
+### 2.3 Normal EQ
 
-In current implementation, both pre-EQ and post-EQ analyzer curves are exported to Web UI.
+- 普通静态 peaking EQ。
+- 18kHz 节点特殊处理为固定高切：
+  - 类型：二阶低通
+  - 坡度：12 dB/oct
+  - 目的：超过 18kHz 的能量自然衰减
 
-## Mode Implementation Details
+## 3. 13 段默认频点
 
-### 1) Linear EQ (<= 2 kHz)
+初始化频点（`play_dsp_init`）当前为：
 
-Linear EQ uses linear gain interpretation before coefficient build, then goes through the active filter topology of that band:
+- 31, 62, 125, 250, 500, 2000, 8000, 10000, 12000, 15000, 16000, 17000, 18000 (Hz)
 
-- If band frequency <= 1 kHz: TPT-SVF bell section
-- If band frequency > 1 kHz: peaking biquad section
+其中：
 
-Implementation idea:
+- 10k / 12k / 15k / 16k / 17k 为新增可调节点
+- 18k 为高切节点（非普通 peaking）
 
-- User gain in dB: `gainDB`
-- Convert to a normalized linear amplitude ratio around unity:
-  - `linearAmplitude = 1 + gainDB / EQ_MAX_GAIN_DB`
-- Clamp to avoid invalid values:
-  - minimum 0.05
-- Convert back to dB for biquad coefficient generation:
-  - `effectiveGainDB = 20 * log10(linearAmplitude)`
+## 4. 多段动态处理（Multiband Dynamics）
 
-This makes low-mid adjustment feel smoother and more proportional for broad tonal shaping.
+### 4.1 基本行为
 
-### 1.1) TPT-SVF for Low-Frequency EQ (<= 1 kHz)
+- 固定 8 个频带分割，分别维护包络和实时作用量。
+- 每个 band 有一个 `amountDb`（范围 +/-6 dB）。
+- 当包络超过阈值后：
+  - `amountDb > 0` 倾向向下压（避免过激）
+  - `amountDb < 0` 倾向向上拉（做扩展倾向）
 
-Low-frequency bands are processed with a Topology Preserving Transform State Variable Filter (TPT-SVF), configured as a bell-style section.
+### 4.2 关键范围（来自头文件）
 
-Why TPT-SVF here:
+- `PLAY_MB_DYN_MIN_DB = -6.0f`
+- `PLAY_MB_DYN_MAX_DB = 6.0f`
+- `PLAY_MB_DYN_MIN_THRESHOLD = 0.01f`
+- `PLAY_MB_DYN_MAX_THRESHOLD = 1.00f`
+- `PLAY_MB_DYN_MIN_ATTACK = 0.002f`
+- `PLAY_MB_DYN_MAX_ATTACK = 0.20f`
+- `PLAY_MB_DYN_MIN_RELEASE = 0.005f`
+- `PLAY_MB_DYN_MAX_RELEASE = 0.50f`
+- `PLAY_MB_DYN_MIN_STRENGTH = 0.1f`
+- `PLAY_MB_DYN_MAX_STRENGTH = 8.0f`
 
-- Better numerical behavior at low frequencies
-- Smooth parameter response while adjusting gain/Q
-- Good fit for future embedded/MCU portability
+### 4.3 链路位置
 
-Core per-band parameters:
+多段动态支持两种插入位置：
 
-- `g = tan(pi * f0 / fs)`
-- `k = 1 / Q`
-- `A = 10^(gainDB / 40)`
-- `h = 1 / (1 + g * (g + k))`
+- Pre EQ
+- Post EQ
 
-State variables (per band, per channel):
+该位置由 `mbDynPosition` 控制，并在 `/eq` 接口中可读写。
 
-- `ic1eq`
-- `ic2eq`
+## 5. 处理链路顺序
 
-Sample processing shape:
+对每个采样点（每个声道）的整体顺序：
 
-- `v1 = h * (ic1eq + g * (x - ic2eq))`
-- `v2 = ic2eq + g * v1`
-- `bp = v1`
-- `y = x + k * (A - 1) * bp`
-- `ic1eq = 2 * v1 - ic1eq`
-- `ic2eq = 2 * v2 - ic2eq`
+1. 读取输入样本
+2. 若 bypass=OFF 且 mbDyn 开启且位置为 Pre EQ：执行 MB dyn
+3. 若 bypass=OFF 且 lowCrossfeed 开启且位置为 Pre EQ：执行低频 crossfeed
+4. 若 bypass=OFF：执行 13 段 EQ（含 dynamic 后处理）
+5. 若 bypass=OFF 且 lowCrossfeed 开启且位置为 Post EQ：执行低频 crossfeed
+6. 若 bypass=OFF 且 mbDyn 开启且位置为 Post EQ：执行 MB dyn
+7. 写回输出并更新分析窗口
 
-In code, low-band selection is done by `bandFreq <= EQ_LOW_SVF_MAX_HZ`, with a per-band switch (`bandUseSVF`) that chooses SVF vs biquad at runtime.
+## 6. Web 端显示与接口
 
-### 2) Dynamic EQ (2 kHz to 16 kHz)
+### 6.1 频谱与曲线
 
-Dynamic EQ uses envelope tracking per band and per channel, then applies an adaptive attenuation when boosted bands exceed threshold.
+- 频谱显示精度已提高，按关键频点绘制（如 20/30/.../20k）。
+- 频谱下方标签已去掉 "hz" 后缀，仅显示数值。
+- 增加固定参考哈曼曲线（只作为视觉参考，不参与 DSP）。
+- 新增 MB Target 与 MB Applied 两条曲线：
+  - MB Target：配置目标（用户设定）
+  - MB Applied：实时生效（受包络与阈值影响）
 
-Envelope tracking:
+### 6.2 `/eq` GET
 
-- `env += coeff * (abs(out) - env)`
-- `coeff = attack` when signal rises
-- `coeff = release` when signal falls
+返回：
 
-Reduction condition:
+- EQ 基础参数与限制
+- bypass / crossfeed / dynamic 参数
+- multiband dynamics 开关、位置、全局参数
+- multiband band 边界、target amounts、applied dB
+- dynamicReductionDB 与 bandModes
 
-- only active when user gain for this band is positive (`gainsDB[band] > 0`)
-- only active when `env > threshold`
+### 6.3 `/eq` POST
 
-Reduction amount:
+支持部分字段增量更新，包括：
 
-- `over = env - threshold`
-- `reductionDb = over * strengthDB`
-- clamp by `maxReductionDB`
+- gains / qs
+- bypassEnabled
+- lowCrossfeedEnabled / lowCrossfeedPosition
+- dynamic 参数组
+- mbDynEnabled / mbDynPosition / mbDynThreshold / mbDynAttack / mbDynRelease / mbDynStrength
+- mbDynAmounts
 
-Apply to band output:
+## 7. 模块拆分（本次重构）
 
-- `out *= 10^(-reductionDb / 20)`
+为降低 `play_dsp_common.c` 的耦合，已完成模块拆分：
 
-This preserves clarity by controlling harshness in upper mids/highs while still allowing musical boost at lower levels.
+- `src/play_eq_linear.h/.c`
+  - 线性模式增益映射接口（当前为 dB 直通）
+- `src/play_eq_dynamic.h/.c`
+  - 动态 EQ 包络更新与衰减计算
+- `src/play_eq_normal.h/.c`
+  - peaking 与 12 dB/oct lowpass 系数构建
+- `src/play_multiband_dynamics.h/.c`
+  - 8 段多段动态处理与配置/拷贝接口
 
-### 3) Normal EQ (> 16 kHz)
+`src/play_dsp_common.c` 现在主要负责：
 
-Normal mode uses the standard peaking EQ biquad response with no dynamic post-control and no linear remap.
+- 链路编排
+- 状态管理
+- 对外 API
+- 分析数据更新
 
-It is best suited to air and brilliance shaping where direct, predictable static EQ is preferred.
+## 8. CMake 构建变化
 
-## Shared State and API
+`CMakeLists.txt` 已将新增模块加入两个目标：
 
-Core state: `play_dsp_state` in `src/play_dsp_common.h`
+- `play_macos`
+- `play_mcu`
 
-Dynamic parameters are stored in state:
+新增编译单元：
 
-- `dynamicAttack`
-- `dynamicRelease`
-- `dynamicThreshold`
-- `dynamicMaxReductionDB`
-- `dynamicStrengthDB`
+- `src/play_eq_linear.c`
+- `src/play_eq_dynamic.c`
+- `src/play_eq_normal.c`
+- `src/play_multiband_dynamics.c`
 
-TPT-SVF-related state is also stored per band/per channel:
+## 9. 调参建议
 
-- `bandUseSVF`
-- `svfG`, `svfK`, `svfA`, `svfH`
-- `svfIc1eq`, `svfIc2eq`
-
-Public APIs:
-
-- `play_dsp_set_eq_params(...)`
-- `play_dsp_set_dynamic_params(...)`
-- `play_dsp_get_dynamic_params(...)`
-- `play_dsp_set_plugin_enabled(...)`
-- `play_dsp_get_plugin_mask(...)`
-- `play_dsp_copy_phase_metrics(...)`
-
-Plugin bit definitions:
-
-- `PLAY_DSP_PLUGIN_PHASE_ANALYZER` (phase/group-delay analysis)
-
-Low-crossfeed control APIs:
-
-- `play_dsp_set_low_crossfeed(...)`
-- `play_dsp_get_low_crossfeed(...)`
-
-## Dynamic Parameter Ranges
-
-Defined in `src/play_dsp_common.h`:
-
-- Attack: `DYNAMIC_EQ_MIN_ATTACK` to `DYNAMIC_EQ_MAX_ATTACK` (0.01 to 0.50)
-- Release: `DYNAMIC_EQ_MIN_RELEASE` to `DYNAMIC_EQ_MAX_RELEASE` (0.005 to 0.30)
-- Threshold: `DYNAMIC_EQ_MIN_THRESHOLD` to `DYNAMIC_EQ_MAX_THRESHOLD` (0.02 to 1.00)
-- Max Reduction: `DYNAMIC_EQ_MIN_MAX_REDUCTION_DB` to `DYNAMIC_EQ_MAX_MAX_REDUCTION_DB` (0 to 24 dB)
-- Strength: `DYNAMIC_EQ_MIN_STRENGTH_DB` to `DYNAMIC_EQ_MAX_STRENGTH_DB` (1 to 36 dB)
-
-`play_dsp_set_dynamic_params(...)` clamps all values to these ranges.
-
-## Web API Contract
-
-### GET /spectrum
-
-Returns:
-
-- `sampleRate`
-- `preBins` (EQ before)
-- `postBins` (EQ after)
-- `phasePluginEnabled` (boolean)
-- `phaseDeltaDeg` (array, only meaningful when plugin is enabled)
-- `groupDelayMs` (array, only meaningful when plugin is enabled)
-
-### GET /eq
-
-Returns:
-
-- static EQ limits and arrays (`minGain`, `maxGain`, `minQ`, `maxQ`, `freqs`, `gains`, `qs`)
-- sample rate (`sampleRate`)
-- plugin state (`phasePluginEnabled`)
-- low-crossfeed state (`lowCrossfeedEnabled`, `lowCrossfeedPosition`)
-- low-crossfeed constants (`lowCrossfeedCutoffHz`, `lowCrossfeedRatio`)
-- dynamic parameter current values
-- dynamic parameter min/max limits
-- dynamic curve metadata (`modes`, `dynamicReductionDB`)
-
-### POST /eq
-
-Accepts partial update payload. Any of the following fields may be present:
-
-- `gains`: float array
-- `qs`: float array
-- `dynamicAttack`: float
-- `dynamicRelease`: float
-- `dynamicThreshold`: float
-- `dynamicMaxReductionDB`: float
-- `dynamicStrengthDB`: float
-- `phasePluginEnabled`: float-like boolean (`0` or `1`)
-- `lowCrossfeedEnabled`: float-like boolean (`0` or `1`)
-- `lowCrossfeedPosition`: `0` for pre-EQ, `1` for post-EQ
-
-Updates are applied atomically under DSP mutex in `play_macos`.
-
-When `phasePluginEnabled` is `0`, phase metrics are not updated in DSP loop (lower overhead).
-
-## Frontend Interaction
-
-The Web UI now has:
-
-- Spectrum and EQ canvas
-- Pre-EQ and Post-EQ curves
-- Dynamic reduction continuous interpolation curve
-- Per-band gain and Q controls
-- Per-band mode badge (`Linear`, `Dynamic`, `Normal`)
-- Dynamic EQ control row with five sliders:
-  - Dyn Attack
-  - Dyn Release
-  - Threshold
-  - Max Red (dB)
-  - Strength (dB)
-- A plugin toggle control: `Phase Plugin` (`ON` / `OFF`)
-- A low-crossfeed toggle control: `Low Crossfeed` (`ON` / `OFF`)
-- A low-crossfeed placement selector: `Pre EQ` / `Post EQ`
-
-Changing any dynamic slider sends real-time POST updates and immediately affects playback.
-
-Changing Phase Plugin toggle sends real-time POST update and controls whether phase/group-delay analysis is running.
-
-Changing Low Crossfeed toggle or placement sends real-time POST update and controls whether low-band stereo blending happens before or after EQ.
-
-Note:
-
-- The purple Estimated EQ curve is still a client-side approximation based on biquad equations.
-- Because low-frequency bands use TPT-SVF and dynamic processing can attenuate output, estimated curve and measured post curve may differ.
-
-## Suggested Tuning Workflow
-
-1. Shape low end and body using <= 2 kHz bands (Linear mode).
-  - Note: <= 1 kHz bands are internally processed with TPT-SVF.
-2. Add presence/definition in 2 kHz to 16 kHz bands (Dynamic mode).
-3. Use > 16 kHz band for air, then reduce dynamic threshold only if upper-band harshness appears.
-4. Start dynamic defaults from:
-   - Attack: 0.12
-   - Release: 0.02
-   - Threshold: 0.18
-   - Max Reduction: 12 dB
-   - Strength: 18 dB
-
-## Phase Metrics Interpretation Guide
-
-This section helps interpret `phaseDeltaDeg` and `groupDelayMs` returned by `GET /spectrum` when `Phase Plugin` is enabled.
-
-### 1) What to focus on first
-
-- Prefer `groupDelayMs` as the primary practical metric.
-- Use `phaseDeltaDeg` as a secondary trend indicator.
-- Judge by frequency region, not by one global number.
-
-### 2) Practical risk levels (rule-of-thumb)
-
-For low-frequency region (20 Hz to 200 Hz):
-
-- Low risk: group delay <= 2 ms
-- Medium risk: 2 ms to 6 ms
-- High risk: > 6 ms
-
-For low-mid region (200 Hz to 1 kHz):
-
-- Low risk: group delay <= 1.5 ms
-- Medium risk: 1.5 ms to 4 ms
-- High risk: > 4 ms
-
-For high region (> 1 kHz):
-
-- group delay is usually less audible for weight/punch
-- prioritize tonal quality and harshness control over strict delay minimization
-
-### 3) Audible symptoms mapping
-
-- Excessive low-frequency group delay:
-  - bass feels soft or laggy
-  - kick transient loses impact
-- Strongly uneven phase trend around crossover-like areas:
-  - image focus may feel less stable
-  - transients can feel smeared
-
-### 4) How to decide if it is a real problem
-
-Use A/B steps:
-
-1. Toggle `Phase Plugin` ON, observe `groupDelayMs` trend.
-2. Keep same loudness, bypass EQ changes that create peaks in low-band delay.
-3. If delay peaks drop and punch returns, treat as confirmed phase-related issue.
-
-### 5) Fast mitigation actions
-
-If low-end delay is too high:
-
-- reduce low-band boost magnitude first
-- lower Q on low-frequency bands (wider, gentler shaping)
-- avoid stacking multiple adjacent low boosts
-
-If dynamic section causes instability in upper range:
-
-- increase dynamic threshold slightly
-- reduce dynamic strength or max reduction
-- slow attack and/or increase release moderately
-
-### 6) Notes on this project implementation
-
-- `phaseDeltaDeg` is computed as post-EQ minus pre-EQ phase at analyzer bins.
-- `groupDelayMs` is numerically derived from phase slope versus frequency.
-- Metrics are meaningful for trend comparison and tuning direction; do not treat them as laboratory-grade absolute measurements.
-
-## MCU Notes
-
-`play_mcu` uses the same shared DSP implementation, so these three modes and dynamic parameters are already available on MCU side.
-
-The plugin framework is shared as well. MCU side can enable/disable plugins by calling `play_dsp_set_plugin_enabled(...)`.
-
-To control parameters on device, implement `play_mcu_poll_eq(...)` and pass updated gains/Q values each block. If needed, add an MCU control path that calls `play_dsp_set_dynamic_params(...)` with host-provided values.
-
-## Build and Validate
-
-Build:
-
-- `cmake --build build --target play_macos -j 4`
-- `cmake --build build --target play_mcu -j 4`
-
-Run host prototype (outside sandbox for audio + bind):
-
-- `./build/play_macos`
-
-Open Web UI:
-
-- `http://127.0.0.1:8080`
+1. 先用 Linear 区间（<=2k）定低频和主体密度。
+2. 再用 Dynamic 区间（2k~17k）控制存在感和齿音风险。
+3. 18k 高切按听感微调，避免过亮和尖锐超高频。
+4. 最后启用 MB dyn，先小幅设置（如 +/-1~2dB），观察 Applied 曲线是否稳定跟随。
