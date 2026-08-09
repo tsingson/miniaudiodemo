@@ -108,6 +108,8 @@ static void assign_band_modes(play_dsp_state* state)
 
 static void rebuild_eq(play_dsp_state* state)
 {
+    play_eq_linear_rebuild(state);
+
     for (int i = 0; i < EQ_BANDS; ++i)
     {
         double gainDB = state->gainsDB[i];
@@ -116,7 +118,8 @@ static void rebuild_eq(play_dsp_state* state)
         uint8_t mode = state->bandModes[i];
         if (mode == (uint8_t)PLAY_EQ_MODE_LINEAR)
         {
-            gainDB = play_eq_linear_map_gain_db(state->gainsDB[i]);
+            state->bandUseSVF[i] = 0u;
+            continue;
         }
 
         state->bandUseSVF[i] = (frequency <= (double)EQ_LOW_SVF_MAX_HZ) ? 1u : 0u;
@@ -132,19 +135,6 @@ static void rebuild_eq(play_dsp_state* state)
             state->svfK[i] = k;
             state->svfA[i] = aBell;
             state->svfH[i] = h;
-            continue;
-        }
-
-        if (frequency >= 18000.0)
-        {
-            play_eq_normal_build_lowpass_12db(frequency,
-                              (double)state->sampleRate,
-                              0.70710678118,
-                              &state->b0[i],
-                              &state->b1[i],
-                              &state->b2[i],
-                              &state->a1[i],
-                              &state->a2[i]);
             continue;
         }
 
@@ -358,11 +348,11 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
 
     {
         const float freqs[EQ_BANDS] = {
-            31.0f, 62.0f, 125.0f, 250.0f, 500.0f, 2000.0f, 8000.0f, 10000.0f, 12000.0f, 15000.0f, 16000.0f, 17000.0f, 18000.0f};
+            20.0f, 35.0f, 60.0f, 110.0f, 220.0f, 360.0f, 700.0f, 1600.0f, 3200.0f, 4800.0f, 7200.0f, 10000.0f, 16000.0f, 18000.0f, 20000.0f, 22000.0f};
         const float gains[EQ_BANDS] = {
-            3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+            3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -3.0f, -24.0f, -24.0f};
         const float qs[EQ_BANDS] = {
-            0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
+            0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
 
         for (int i = 0; i < EQ_BANDS; ++i)
         {
@@ -380,6 +370,7 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->bypassEnabled = 0u;
     state->lowCrossfeedEnabled = 0u;
     state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    play_eq_linear_init(state);
     play_mb_dyn_init(state);
     update_low_crossfeed_coeff(state);
 
@@ -484,6 +475,21 @@ void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, ui
     }
 }
 
+void play_dsp_set_linear_fir_config(play_dsp_state* state, int enabled, int taps)
+{
+    play_eq_linear_set_config(state, enabled, taps);
+    rebuild_eq(state);
+}
+
+void play_dsp_get_linear_fir_config(const play_dsp_state* state,
+                                    int* outEnabled,
+                                    int* outTaps,
+                                    int* outDelaySamples,
+                                    float* outDelayMs)
+{
+    play_eq_linear_get_config(state, outEnabled, outTaps, outDelaySamples, outDelayMs);
+}
+
 void play_dsp_set_multiband_dynamics_config(play_dsp_state* state,
                                             int enabled,
                                             uint8_t position,
@@ -580,6 +586,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
     for (uint32_t i = 0; i < frameCount; ++i)
     {
         float monoIn = 0.0f;
+        float monoEqIn = 0.0f;
+        float monoEqOut = 0.0f;
         float monoOut = 0.0f;
         float preCrossL = 0.0f;
         float preCrossR = 0.0f;
@@ -623,11 +631,23 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 play_mb_dyn_process_sample(state, ch, &in);
             }
 
+            monoEqIn += in;
+
+            if (!state->bypassEnabled && ch < MAX_CHANNELS)
+            {
+                in = play_eq_linear_process_sample(state, ch, in);
+            }
+
             if (!state->bypassEnabled && ch < MAX_CHANNELS)
             {
                 for (int band = 0; band < EQ_BANDS; ++band)
                 {
                     double out;
+
+                    if (state->bandModes[band] == (uint8_t)PLAY_EQ_MODE_LINEAR)
+                    {
+                        continue;
+                    }
 
                     if (state->bandUseSVF[band])
                     {
@@ -694,6 +714,8 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                 }
             }
 
+            monoEqOut += in;
+
             interleavedFrames[i * channels + ch] = in;
             monoOut += in;
         }
@@ -705,9 +727,14 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
         }
 
         monoIn /= (float)channels;
+        monoEqIn /= (float)channels;
+        monoEqOut /= (float)channels;
         monoOut /= (float)channels;
         state->preSamples[state->writeIndex] = monoIn;
+        state->eqTapInSamples[state->writeIndex] = monoEqIn;
+        state->eqTapOutSamples[state->writeIndex] = monoEqOut;
         state->postSamples[state->writeIndex] = monoOut;
+        state->eqTapSeq += 1u;
         state->writeIndex++;
 
         if (state->writeIndex >= ANALYZER_WINDOW)
@@ -740,6 +767,37 @@ void play_dsp_copy_spectrum(const play_dsp_state* state, float* outPreBins, floa
         {
             outPostBins[i] = state->postBins[i];
         }
+    }
+}
+
+void play_dsp_copy_eq_taps(const play_dsp_state* state,
+                           float* outEqIn,
+                           float* outEqOut,
+                           int maxCount,
+                           int* outWriteIndex,
+                           uint64_t* outSeq)
+{
+    int n = (maxCount < ANALYZER_WINDOW) ? maxCount : ANALYZER_WINDOW;
+
+    for (int i = 0; i < n; ++i)
+    {
+        if (outEqIn != NULL)
+        {
+            outEqIn[i] = state->eqTapInSamples[i];
+        }
+        if (outEqOut != NULL)
+        {
+            outEqOut[i] = state->eqTapOutSamples[i];
+        }
+    }
+
+    if (outWriteIndex != NULL)
+    {
+        *outWriteIndex = state->writeIndex;
+    }
+    if (outSeq != NULL)
+    {
+        *outSeq = state->eqTapSeq;
     }
 }
 

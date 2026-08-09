@@ -10,15 +10,17 @@
 #define ANALYZER_WINDOW 512
 #define ANALYZER_BINS 48
 #define MAX_CHANNELS 2
-#define EQ_BANDS 13
+#define EQ_BANDS 16
 #define EQ_MIN_GAIN_DB -36.0f
 #define EQ_MAX_GAIN_DB 36.0f
 #define EQ_MIN_Q 0.3f
 #define EQ_MAX_Q 12.0f
 #define EQ_LOW_SVF_MAX_HZ 1000.0f
 
-#define EQ_LINEAR_MAX_HZ 2000.0f
-#define EQ_DYNAMIC_MAX_HZ 17000.0f
+#define EQ_LINEAR_MAX_HZ 220.0f
+#define EQ_DYNAMIC_MAX_HZ 16000.0f
+#define PLAY_LINEAR_FIR_MAX_TAPS 33
+#define PLAY_LINEAR_FIR_DEFAULT_TAPS 25
 #define DYNAMIC_EQ_MIN_ATTACK 0.01f
 #define DYNAMIC_EQ_MAX_ATTACK 0.50f
 #define DYNAMIC_EQ_MIN_RELEASE 0.005f
@@ -80,6 +82,14 @@ typedef struct play_dsp_state
     float dynamicThreshold;
     float dynamicMaxReductionDB;
     float dynamicStrengthDB;
+    uint8_t linearFirEnabled;
+    uint8_t linearFirUserEnabled;
+    uint8_t linearFirTaps;
+    float linearFirCoeff[PLAY_LINEAR_FIR_MAX_TAPS];
+    float linearFirHist[PLAY_LINEAR_FIR_MAX_TAPS][MAX_CHANNELS];
+    int linearFirWriteIndex[MAX_CHANNELS];
+    float linearFirTransientEnv[MAX_CHANNELS];
+    float linearFirLastDelayed[MAX_CHANNELS];
     uint32_t pluginMask;
     uint8_t bypassEnabled;
     uint8_t lowCrossfeedEnabled;
@@ -122,6 +132,9 @@ typedef struct play_dsp_state
 
     float preSamples[ANALYZER_WINDOW];
     float postSamples[ANALYZER_WINDOW];
+    float eqTapInSamples[ANALYZER_WINDOW];
+    float eqTapOutSamples[ANALYZER_WINDOW];
+    uint64_t eqTapSeq;
     int writeIndex;
     float preBins[ANALYZER_BINS];
     float postBins[ANALYZER_BINS];
@@ -155,6 +168,12 @@ void play_dsp_set_bypass(play_dsp_state* state, int enabled);
 int play_dsp_get_bypass(const play_dsp_state* state);
 void play_dsp_set_low_crossfeed(play_dsp_state* state, int enabled, uint8_t position);
 void play_dsp_get_low_crossfeed(const play_dsp_state* state, int* outEnabled, uint8_t* outPosition);
+void play_dsp_set_linear_fir_config(play_dsp_state* state, int enabled, int taps);
+void play_dsp_get_linear_fir_config(const play_dsp_state* state,
+                                    int* outEnabled,
+                                    int* outTaps,
+                                    int* outDelaySamples,
+                                    float* outDelayMs);
 void play_dsp_set_multiband_dynamics_config(play_dsp_state* state,
                                             int enabled,
                                             uint8_t position,
@@ -181,6 +200,12 @@ uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state);
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels);
 void play_dsp_copy_bins(const play_dsp_state* state, float* outBins, int maxCount);
 void play_dsp_copy_spectrum(const play_dsp_state* state, float* outPreBins, float* outPostBins, int maxCount);
+void play_dsp_copy_eq_taps(const play_dsp_state* state,
+                           float* outEqIn,
+                           float* outEqOut,
+                           int maxCount,
+                           int* outWriteIndex,
+                           uint64_t* outSeq);
 void play_dsp_copy_dynamic_curve(const play_dsp_state* state, uint8_t* outModes, float* outReductionDB, int maxCount);
 void play_dsp_copy_phase_metrics(const play_dsp_state* state, float* outPhaseDeltaDeg, float* outGroupDelayMs,
                                  int maxCount);

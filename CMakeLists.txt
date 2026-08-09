@@ -27,10 +27,42 @@ add_executable(play_mcu
                src/play_eq_dynamic.c
                src/play_eq_normal.c
                src/play_multiband_dynamics.c)
+add_executable(verify_eq_gain
+               src/verify_eq_gain.c
+               src/play_dsp_common.c
+               src/play_eq_linear.c
+               src/play_eq_dynamic.c
+               src/play_eq_normal.c
+               src/play_multiband_dynamics.c)
+add_executable(verify_eq_taps
+               src/verify_eq_taps.c
+               src/play_dsp_common.c
+               src/play_eq_linear.c
+               src/play_eq_dynamic.c
+               src/play_eq_normal.c
+               src/play_multiband_dynamics.c)
+add_executable(test_eq_dynamic
+               tests/test_eq_dynamic.c
+               src/play_eq_dynamic.c)
+add_executable(test_eq_normal
+               tests/test_eq_normal.c
+               src/play_eq_normal.c)
+add_executable(test_eq_linear
+               tests/test_eq_linear.c
+               src/play_dsp_common.c
+               src/play_eq_linear.c
+               src/play_eq_dynamic.c
+               src/play_eq_normal.c
+               src/play_multiband_dynamics.c)
 target_include_directories(miniaudiodemo PRIVATE src)
 target_include_directories(three_way_macos PRIVATE src)
 target_include_directories(play_macos PRIVATE src)
 target_include_directories(play_mcu PRIVATE src)
+target_include_directories(verify_eq_gain PRIVATE src)
+target_include_directories(verify_eq_taps PRIVATE src)
+target_include_directories(test_eq_dynamic PRIVATE src)
+target_include_directories(test_eq_normal PRIVATE src)
+target_include_directories(test_eq_linear PRIVATE src)
 
 if(PLAY_USE_CMSIS_DSP)
   set(CMSIS_DSP_DIR "${CMAKE_SOURCE_DIR}/../CMSIS-DSP")
@@ -40,8 +72,14 @@ if(PLAY_USE_CMSIS_DSP)
     add_subdirectory(${CMSIS_DSP_DIR} ${CMAKE_BINARY_DIR}/cmsis-dsp)
     target_link_libraries(play_macos PRIVATE CMSISDSP)
     target_link_libraries(play_mcu PRIVATE CMSISDSP)
+    target_link_libraries(verify_eq_gain PRIVATE CMSISDSP)
+    target_link_libraries(verify_eq_taps PRIVATE CMSISDSP)
+    target_link_libraries(test_eq_linear PRIVATE CMSISDSP)
     target_compile_definitions(play_macos PRIVATE USE_CMSIS_DSP=1)
     target_compile_definitions(play_mcu PRIVATE USE_CMSIS_DSP=1)
+    target_compile_definitions(verify_eq_gain PRIVATE USE_CMSIS_DSP=1)
+    target_compile_definitions(verify_eq_taps PRIVATE USE_CMSIS_DSP=1)
+    target_compile_definitions(test_eq_linear PRIVATE USE_CMSIS_DSP=1)
   else()
     message(WARNING "CMSIS-DSP not found at ${CMSIS_DSP_DIR}; play_macos/play_mcu will use libc math fallback.")
   endif()
@@ -64,6 +102,20 @@ elseif(UNIX)
 endif()
 
 if(APPLE)
+  target_link_libraries(verify_eq_gain PRIVATE m)
+  target_link_libraries(verify_eq_taps PRIVATE m)
+  target_link_libraries(test_eq_dynamic PRIVATE m)
+  target_link_libraries(test_eq_normal PRIVATE m)
+  target_link_libraries(test_eq_linear PRIVATE m)
+elseif(UNIX)
+  target_link_libraries(verify_eq_gain PRIVATE pthread m dl)
+  target_link_libraries(verify_eq_taps PRIVATE pthread m dl)
+  target_link_libraries(test_eq_dynamic PRIVATE pthread m dl)
+  target_link_libraries(test_eq_normal PRIVATE pthread m dl)
+  target_link_libraries(test_eq_linear PRIVATE pthread m dl)
+endif()
+
+if(APPLE)
   target_link_libraries(
     three_way_macos PRIVATE "-framework CoreAudio" "-framework CoreFoundation"
                             "-framework AudioToolbox")
@@ -75,6 +127,11 @@ target_compile_options(miniaudiodemo PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(three_way_macos PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(play_macos PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(play_mcu PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(verify_eq_gain PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(verify_eq_taps PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_eq_dynamic PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_eq_normal PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_eq_linear PRIVATE -Wall -Wno-unused-parameter)
 
 # 编译后把可执行文件复制到项目根目录，方便直接运行（test.wav 也在根目录）
 add_custom_command(
@@ -105,3 +162,44 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:play_mcu>
     ${CMAKE_SOURCE_DIR}/play_mcu
   COMMENT "Copied play_mcu to project root")
+
+add_custom_command(
+  TARGET verify_eq_gain
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:verify_eq_gain>
+    ${CMAKE_SOURCE_DIR}/verify_eq_gain
+  COMMENT "Copied verify_eq_gain to project root")
+
+add_custom_command(
+  TARGET verify_eq_taps
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:verify_eq_taps>
+    ${CMAKE_SOURCE_DIR}/verify_eq_taps
+  COMMENT "Copied verify_eq_taps to project root")
+
+add_custom_command(
+  TARGET test_eq_dynamic
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_eq_dynamic>
+    ${CMAKE_SOURCE_DIR}/test_eq_dynamic
+  COMMENT "Copied test_eq_dynamic to project root")
+
+add_custom_command(
+  TARGET test_eq_normal
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_eq_normal>
+    ${CMAKE_SOURCE_DIR}/test_eq_normal
+  COMMENT "Copied test_eq_normal to project root")
+
+add_custom_command(
+  TARGET test_eq_linear
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_eq_linear>
+    ${CMAKE_SOURCE_DIR}/test_eq_linear
+  COMMENT "Copied test_eq_linear to project root")
+
+add_custom_target(run_eq_unit_tests
+  COMMAND ${CMAKE_SOURCE_DIR}/test_eq_dynamic
+  COMMAND ${CMAKE_SOURCE_DIR}/test_eq_normal
+  COMMAND ${CMAKE_SOURCE_DIR}/test_eq_linear
+  DEPENDS test_eq_dynamic test_eq_normal test_eq_linear)
