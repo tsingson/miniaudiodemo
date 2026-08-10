@@ -2,7 +2,7 @@
 
 #include <stddef.h>
 
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 void play_pipeline_init(play_pipeline* pipeline)
 {

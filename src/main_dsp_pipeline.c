@@ -8,7 +8,7 @@
 #define sleep_ms(ms) usleep((ms) * 1000)
 #endif
 
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #include "dsp_pipeline.h"
 
 

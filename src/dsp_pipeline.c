@@ -1,6 +1,6 @@
 #include <math.h>
 #include <stdlib.h>
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #include "dsp_pipeline.h"
 
 // 增益节点私有数据

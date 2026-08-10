@@ -1,4 +1,4 @@
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #include <stdio.h>
 
 typedef struct

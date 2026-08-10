@@ -1,5 +1,5 @@
 #define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #ifdef USE_CMSIS_DSP
 #include "arm_math.h"
 #endif

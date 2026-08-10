@@ -11,7 +11,7 @@ Run:
   ./three_way_macos input.wav output_6ch.wav [f1] [f2]
 */
 
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 
 #include <math.h>
 #include <stdio.h>

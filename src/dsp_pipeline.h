@@ -1,7 +1,7 @@
 #ifndef DSP_PIPELINE_H
 #define DSP_PIPELINE_H
 
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #include <stdatomic.h>
 #include <stdbool.h>
 

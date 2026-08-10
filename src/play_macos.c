@@ -1,4 +1,4 @@
-#include "miniaudio.h"
+#include "miniaudio/miniaudio.h"
 #include "play_dsp_common.h"
 
 #include <arpa/inet.h>
@@ -1036,7 +1036,7 @@ static void* http_server_thread_main(void* userData)
     return NULL;
 }
 
-const char* input_audio_file_path = "3.wav";
+const char* input_audio_file_path = "1.wav";
 
 int main(void)
 {

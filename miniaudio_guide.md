@@ -19,7 +19,7 @@ miniaudiodemo/
 │   ├── play_multiband_dynamics.c
 │   ├── verify_eq_gain.c
 │   ├── verify_eq_taps.c
-│   ├── miniaudio.c        ← 仅含 #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio.h"
+│   ├── miniaudio.c        ← 仅含 #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio/miniaudio.h"
 │   └── miniaudio.h        ← 单头文件库（不要修改）
 └── tests/
     ├── test_eq_linear.c
@@ -53,8 +53,8 @@ cmake --build build --target miniaudiodemo play_macos play_mcu -j 4
 miniaudio 是单头文件（STB-style）库，`#define MINIAUDIO_IMPLEMENTATION` **只能出现一次**，否则链接报"重复定义"。
 
 ```
-src/miniaudio.c   →  #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio.h"
-src/main.c        →  只 #include "miniaudio.h"（不加 define）
+src/miniaudio.c   →  #define MINIAUDIO_IMPLEMENTATION + #include "miniaudio/miniaudio.h"
+src/main.c        →  只 #include "miniaudio/miniaudio.h"（不加 define）
 ```
 
 ### 2. 音频回调（data_callback）
