@@ -544,6 +544,44 @@ void play_dsp_get_dynamic_params(const play_dsp_state* state,
 
 void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels)
 {
+    uint32_t pipelineChannels = (channels > MAX_CHANNELS) ? MAX_CHANNELS : channels;
+    float planarStorage[MAX_CHANNELS][frameCount > 0u ? frameCount : 1u];
+    float* planarPtrs[MAX_CHANNELS] = {0};
+
+    if (state == NULL || interleavedFrames == NULL || frameCount == 0u || channels == 0u)
+    {
+        return;
+    }
+
+    for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+    {
+        planarPtrs[ch] = planarStorage[ch];
+    }
+
+    for (uint32_t i = 0; i < frameCount; ++i)
+    {
+        for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+        {
+            planarStorage[ch][i] = interleavedFrames[i * channels + ch];
+        }
+    }
+
+    play_dsp_process_planar(state, planarPtrs, frameCount, pipelineChannels);
+
+    for (uint32_t i = 0; i < frameCount; ++i)
+    {
+        for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+        {
+            interleavedFrames[i * channels + ch] = planarStorage[ch][i];
+        }
+    }
+}
+
+void play_dsp_process_planar(play_dsp_state* state,
+                             float* const* planarFrames,
+                             uint32_t frameCount,
+                             uint32_t channels)
+{
     play_pipeline prePipeline;
     play_pipeline eqPipeline;
     play_pipeline postPipeline;
@@ -560,6 +598,11 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
     play_normal_eq_stage normalStage;
     play_mbdyn_stage postMbDynStage;
     play_crossfeed_stage postCrossfeedStage;
+
+    if (state == NULL || planarFrames == NULL || frameCount == 0u || channels == 0u)
+    {
+        return;
+    }
 
     play_eq_stage_profile_init(&profile,
                                state->sampleRate,
@@ -668,41 +711,25 @@ void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t 
                                   play_crossfeed_stage_process);
     (void)play_pipeline_add_stage(&postPipeline, "observe-output", 1, &observerOutStage, play_observer_stage_process);
 
-    for (uint32_t i = 0; i < frameCount; ++i)
     {
-        float frameBuf[MAX_CHANNELS] = {0.0f, 0.0f};
         play_frame_block block;
         uint32_t pipelineChannels = (channels > MAX_CHANNELS) ? MAX_CHANNELS : channels;
-
-        for (uint32_t ch = 0; ch < channels; ++ch)
-        {
-            float inputSample = interleavedFrames[i * channels + ch];
-            if (ch < MAX_CHANNELS)
-            {
-                frameBuf[ch] = inputSample;
-            }
-        }
 
         observerMetrics.monoIn = 0.0f;
         observerMetrics.monoEqIn = 0.0f;
         observerMetrics.monoEqOut = 0.0f;
         observerMetrics.monoOut = 0.0f;
 
-        block.interleaved = frameBuf;
-        block.frameCount = 1u;
+        block.interleaved = NULL;
+        block.planar = planarFrames;
+        block.layout = PLAY_BUFFER_LAYOUT_PLANAR;
+        block.frameCount = frameCount;
         block.channels = pipelineChannels;
         block.sampleRate = state->sampleRate;
+
         (void)play_pipeline_run(&prePipeline, &block);
-
         (void)play_pipeline_run(&eqPipeline, &block);
-
         (void)play_pipeline_run(&postPipeline, &block);
-
-        for (uint32_t ch = 0; ch < channels; ++ch)
-        {
-            float outSample = (ch < MAX_CHANNELS) ? frameBuf[ch] : interleavedFrames[i * channels + ch];
-            interleavedFrames[i * channels + ch] = outSample;
-        }
     }
 
     eq_pipeline_copy_to_state(state, &linearStage, &dynamicStage, &normalStage);

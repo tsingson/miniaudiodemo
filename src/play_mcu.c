@@ -36,6 +36,8 @@ int main(void)
 {
     play_dsp_state dsp;
     float audioBlock[MCU_BLOCK_FRAMES * MCU_CHANNELS];
+    float planarStorage[MAX_CHANNELS][MCU_BLOCK_FRAMES];
+    float* planarPtrs[MAX_CHANNELS] = {planarStorage[0], planarStorage[1]};
     float gains[EQ_BANDS];
     float qs[EQ_BANDS];
     float prevGains[EQ_BANDS];
@@ -85,7 +87,24 @@ int main(void)
 
         if (frames > 0)
         {
-            play_dsp_process(&dsp, audioBlock, frames, MCU_CHANNELS);
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
+                {
+                    planarStorage[ch][i] = audioBlock[i * MCU_CHANNELS + ch];
+                }
+            }
+
+            play_dsp_process_planar(&dsp, planarPtrs, frames, MCU_CHANNELS);
+
+            for (uint32_t i = 0; i < frames; ++i)
+            {
+                for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
+                {
+                    audioBlock[i * MCU_CHANNELS + ch] = planarStorage[ch][i];
+                }
+            }
+
             play_mcu_write_frames(audioBlock, frames);
         }
     }

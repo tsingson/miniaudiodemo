@@ -42,7 +42,11 @@
 - sampleRate
 - channels
 - frameCount
-- interleaved
+- layout（interleaved / planar）
+- interleaved（交错数据入口）
+- planar（按声道平面数据入口）
+
+当前推荐：主处理路径优先使用 planar（每声道独立平面），interleaved 作为 I/O 兼容壳。
 
 ### 3.2 阶段函数契约
 
@@ -286,6 +290,16 @@ flowchart LR
   - bypass 准确性
   - tap 时序完整性
   - 增益变化是否符合预期
+  - interleaved 与 planar 行为一致性
+
+### 8.4 Planar 专项回归
+
+建议把以下用例固定到 CI：
+
+- planar stage 顺序回归（乘后加 vs 加后乘）
+- planar crossfeed pre/post 启停回归
+- planar multiband dynamics pre/post 启停回归
+- interleaved 与 planar 在同输入下的结果偏差阈值检查
 
 ## 9. 推荐落地步骤
 
@@ -317,6 +331,7 @@ flowchart LR
 - 先将 play_dsp_state 作为兼容外壳
 - 内部阶段逐步转为独立 ctx
 - 每迁移一个 stage 就补一组模块层测试
+- 保持 stage 对两种布局兼容，但新增能力优先按 planar 设计
 
 这样可以保证：
 
@@ -360,13 +375,71 @@ MVP 通过后，再扩展到：
 
 并且不会破坏当前可运行版本。
 
-## 13. 当前实现状态（2026-08-09）
+## 13. 多声道 / 多音轨前瞻设计（5.1 / 7.1 / 复合音轨）
+
+为支持 L/R 先上混到 5.1/7.1，再做每声道 EQ 与干湿混合，建议在当前模型上增加三层抽象。
+
+### 13.1 Channel Plan（声道计划层）
+
+目标：把“输入声道布局 -> 处理声道布局”独立成显式步骤。
+
+- 输入可为 stereo、5.1、7.1 或自定义 bus
+- 上混/下混矩阵单独模块化（不与 EQ stage 耦合）
+- 输出统一为 planar 通道组，供后续 DSP stage 使用
+
+建议接口方向：
+
+- `play_channel_plan_prepare(...)`：准备矩阵与路由描述
+- `play_channel_plan_apply(...)`：执行帧块级上混/下混
+
+### 13.2 Per-Channel DSP Graph（每声道独立图）
+
+目标：每个声道可独立挂 EQ/动态/其他效果。
+
+- 每个声道拥有独立 stage chain 或共享拓扑+独立参数
+- 声道状态（滤波历史、动态包络）严格按声道隔离
+- 支持 L/R、C、LFE、Ls、Rs、Lb、Rb 独立参数
+
+在当前代码上，planar 已提供良好基础：
+
+- 每个 `planar[ch]` 天然对应一个独立声道平面
+- stage 内可按 `ch` 单独选择参数组
+
+### 13.3 Dry/Wet Mix Layer（干湿混合层）
+
+目标：允许每声道、每 bus 的可变混合比例。
+
+建议采用并行路径：
+
+1. dryPath：保留原信号
+2. wetPath：经过 EQ/动态等处理
+3. mix：`out = dryGain * dry + wetGain * wet`
+
+其中 `dryGain/wetGain` 可按：
+
+- 全局统一
+- 每声道独立
+- 每 bus 独立
+
+并建议保留等功率混合选项，避免感知响度突变。
+
+### 13.4 建议的渐进落地顺序
+
+1. 固化 planar 一致性测试（已开始）
+2. 增加 Channel Plan 模块（先支持 stereo<->5.1）
+3. 引入每声道参数表（EQ/动态）
+4. 加入 dry/wet stage（先全局，再每声道）
+5. 扩展到 7.1 与多 bus 复合音轨
+
+## 14. 当前实现状态（2026-08-09）
 
 当前代码已经完成可组合主链路的第一轮完整落地：
 
 - 已新增通用 pipeline 框架：src/play_pipeline.h、src/play_pipeline.c
 - 已新增 EQ 三阶段 wrapper：src/play_pipeline_eq_stages.h、src/play_pipeline_eq_stages.c
+- 已新增 Channel Plan 模块骨架：src/play_channel_plan.h、src/play_channel_plan.c（stereo -> 5.1 planar 路由）
 - 已新增链路测试：tests/test_pipeline_chain.c
+- 已新增 Channel Plan 单测：tests/test_channel_plan.c
 - 已把 test_pipeline_chain 接入 run_eq_unit_tests
 
 主链路接入状态：
@@ -385,3 +458,4 @@ MVP 通过后，再扩展到：
 
 - 给 pipeline 增加阶段统计（延迟、NaN、裁剪计数）
 - 增加 observer 边界条件专项回归（窗口边界、跨帧一致性）
+- 在 Channel Plan 上继续扩展 stereo <-> 7.1、可配置矩阵持久化与能量守恒回归

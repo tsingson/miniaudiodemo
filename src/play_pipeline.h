@@ -5,9 +5,17 @@
 
 #define PLAY_PIPELINE_MAX_STAGES 16
 
+typedef enum
+{
+    PLAY_BUFFER_LAYOUT_INTERLEAVED = 0,
+    PLAY_BUFFER_LAYOUT_PLANAR = 1
+} play_buffer_layout;
+
 typedef struct
 {
     float* interleaved;
+    float* const* planar;
+    play_buffer_layout layout;
     uint32_t frameCount;
     uint32_t channels;
     uint32_t sampleRate;
