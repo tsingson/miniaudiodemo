@@ -66,6 +66,9 @@ add_executable(test_pipeline_chain
                src/play_eq_dynamic.c
                src/play_eq_normal.c
                src/play_multiband_dynamics.c)
+add_executable(test_channel_plan
+               tests/test_channel_plan.c
+               src/play_channel_plan.c)
 target_include_directories(miniaudiodemo PRIVATE src)
 target_include_directories(three_way_macos PRIVATE src)
 target_include_directories(play_macos PRIVATE src)
@@ -76,6 +79,7 @@ target_include_directories(test_eq_dynamic PRIVATE src)
 target_include_directories(test_eq_normal PRIVATE src)
 target_include_directories(test_eq_linear PRIVATE src)
 target_include_directories(test_pipeline_chain PRIVATE src)
+target_include_directories(test_channel_plan PRIVATE src)
 
 if(PLAY_USE_CMSIS_DSP)
   set(CMSIS_DSP_DIR "${CMAKE_SOURCE_DIR}/../CMSIS-DSP")
@@ -121,6 +125,7 @@ if(APPLE)
   target_link_libraries(test_eq_normal PRIVATE m)
   target_link_libraries(test_eq_linear PRIVATE m)
   target_link_libraries(test_pipeline_chain PRIVATE m)
+  target_link_libraries(test_channel_plan PRIVATE m)
 elseif(UNIX)
   target_link_libraries(verify_eq_gain PRIVATE pthread m dl)
   target_link_libraries(verify_eq_taps PRIVATE pthread m dl)
@@ -128,6 +133,7 @@ elseif(UNIX)
   target_link_libraries(test_eq_normal PRIVATE pthread m dl)
   target_link_libraries(test_eq_linear PRIVATE pthread m dl)
   target_link_libraries(test_pipeline_chain PRIVATE pthread m dl)
+  target_link_libraries(test_channel_plan PRIVATE pthread m dl)
 endif()
 
 if(APPLE)
@@ -148,6 +154,7 @@ target_compile_options(test_eq_dynamic PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_normal PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_linear PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_pipeline_chain PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_channel_plan PRIVATE -Wall -Wno-unused-parameter)
 
 # 编译后把可执行文件复制到项目根目录，方便直接运行（test.wav 也在根目录）
 add_custom_command(
@@ -221,9 +228,17 @@ add_custom_command(
     ${CMAKE_SOURCE_DIR}/test_pipeline_chain
   COMMENT "Copied test_pipeline_chain to project root")
 
+add_custom_command(
+  TARGET test_channel_plan
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_channel_plan>
+    ${CMAKE_SOURCE_DIR}/test_channel_plan
+  COMMENT "Copied test_channel_plan to project root")
+
 add_custom_target(run_eq_unit_tests
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_dynamic
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_normal
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_linear
   COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_chain
-  DEPENDS test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain)
+  COMMAND ${CMAKE_SOURCE_DIR}/test_channel_plan
+  DEPENDS test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_channel_plan)

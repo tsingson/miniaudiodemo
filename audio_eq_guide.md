@@ -169,3 +169,30 @@ cmake --build build --target run_eq_unit_tests verify_eq_taps verify_eq_gain pla
 
 - test_pipeline_chain 是否通过（阶段顺序/启停回归）
 - verify_eq_taps 是否通过（tap 时序与准确性）
+
+## 11. 面向 5.1 / 7.1 与多音轨的设计考虑
+
+当前实现已支持 planar 数据路径，这是后续多声道/复合音轨处理的基础。
+
+建议演进方向：
+
+1. 先做 Channel Plan
+- 把 stereo -> 5.1 / 7.1 的上混逻辑独立出来。
+- 在 EQ 前把信号整理为统一 planar 通道集。
+
+2. 再做每声道独立 EQ/DSP
+- 每个声道单独参数：L/R/C/LFE/Ls/Rs/Lb/Rb。
+- 每声道独立状态，避免跨声道状态污染。
+
+3. 增加 dry/wet 混合层
+- 干路保真、湿路处理，再按比例混合：`out = dryGain * dry + wetGain * wet`。
+- 比例可全局、可每声道、可每 bus。
+
+4. 回归策略升级
+- interleaved 与 planar 结果偏差门限回归。
+- stereo 与 5.1/7.1 的能量守恒与通道串扰回归。
+
+当前已落地的第一步：
+
+- 新增 `play_channel_plan` 模块（stereo -> 5.1，planar 路由）
+- 新增 `test_channel_plan` 回归并接入 `run_eq_unit_tests`

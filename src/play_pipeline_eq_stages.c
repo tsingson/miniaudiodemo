@@ -38,6 +38,42 @@ static float db_to_linear(float db)
     return powf(10.0f, db / 20.0f);
 }
 
+static int block_has_layout(const play_frame_block* block)
+{
+    if (block == NULL)
+    {
+        return 0;
+    }
+
+    if (block->layout == PLAY_BUFFER_LAYOUT_PLANAR)
+    {
+        return block->planar != NULL;
+    }
+
+    return block->interleaved != NULL;
+}
+
+static float block_read_sample(const play_frame_block* block, uint32_t frameIndex, uint32_t channel)
+{
+    if (block->layout == PLAY_BUFFER_LAYOUT_PLANAR)
+    {
+        return block->planar[channel][frameIndex];
+    }
+
+    return block->interleaved[frameIndex * block->channels + channel];
+}
+
+static void block_write_sample(play_frame_block* block, uint32_t frameIndex, uint32_t channel, float value)
+{
+    if (block->layout == PLAY_BUFFER_LAYOUT_PLANAR)
+    {
+        block->planar[channel][frameIndex] = value;
+        return;
+    }
+
+    block->interleaved[frameIndex * block->channels + channel] = value;
+}
+
 static float crossfeed_lowpass_process(play_dsp_state* state, uint32_t ch, float x)
 {
     float y;
@@ -278,22 +314,21 @@ int play_linear_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_linear_eq_stage* stage = (play_linear_eq_stage*)ctx;
     uint32_t channels;
-    uint32_t stride;
 
-    if (stage == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
 
     channels = channels_sanitize(block->channels);
-    stride = block->channels;
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            uint32_t idx = i * stride + ch;
-            block->interleaved[idx] = play_eq_linear_ctx_process_sample(&stage->linear, ch, block->interleaved[idx]);
+            float in = block_read_sample(block, i, ch);
+            float out = play_eq_linear_ctx_process_sample(&stage->linear, ch, in);
+            block_write_sample(block, i, ch, out);
         }
     }
 
@@ -304,22 +339,19 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_dynamic_eq_stage* stage = (play_dynamic_eq_stage*)ctx;
     uint32_t channels;
-    uint32_t stride;
 
-    if (stage == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
 
     channels = channels_sanitize(block->channels);
-    stride = block->channels;
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            uint32_t idx = i * stride + ch;
-            float in = block->interleaved[idx];
+            float in = block_read_sample(block, i, ch);
 
             for (int band = 0; band < stage->bandCount; ++band)
             {
@@ -374,7 +406,7 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
                 in = (float)out;
             }
 
-            block->interleaved[idx] = in;
+            block_write_sample(block, i, ch, in);
         }
     }
 
@@ -385,22 +417,19 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_normal_eq_stage* stage = (play_normal_eq_stage*)ctx;
     uint32_t channels;
-    uint32_t stride;
 
-    if (stage == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
 
     channels = channels_sanitize(block->channels);
-    stride = block->channels;
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            uint32_t idx = i * stride + ch;
-            float in = block->interleaved[idx];
+            float in = block_read_sample(block, i, ch);
 
             for (int band = 0; band < stage->bandCount; ++band)
             {
@@ -435,7 +464,7 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
                 in = (float)out;
             }
 
-            block->interleaved[idx] = in;
+            block_write_sample(block, i, ch, in);
         }
     }
 
@@ -445,9 +474,8 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
 int play_crossfeed_stage_process(void* ctx, play_frame_block* block)
 {
     play_crossfeed_stage* stage = (play_crossfeed_stage*)ctx;
-    uint32_t stride;
 
-    if (stage == NULL || stage->state == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || stage->state == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
@@ -458,17 +486,15 @@ int play_crossfeed_stage_process(void* ctx, play_frame_block* block)
         return 0;
     }
 
-    stride = block->channels;
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
-        uint32_t idx = i * stride;
-        float inL = block->interleaved[idx + 0u];
-        float inR = block->interleaved[idx + 1u];
+        float inL = block_read_sample(block, i, 0u);
+        float inR = block_read_sample(block, i, 1u);
         float lowL = crossfeed_lowpass_process(stage->state, 0u, inL);
         float lowR = crossfeed_lowpass_process(stage->state, 1u, inR);
 
-        block->interleaved[idx + 0u] = inL + PLAY_LOW_CROSSFEED_RATIO * lowR;
-        block->interleaved[idx + 1u] = inR + PLAY_LOW_CROSSFEED_RATIO * lowL;
+        block_write_sample(block, i, 0u, inL + PLAY_LOW_CROSSFEED_RATIO * lowR);
+        block_write_sample(block, i, 1u, inR + PLAY_LOW_CROSSFEED_RATIO * lowL);
     }
 
     return 0;
@@ -478,9 +504,8 @@ int play_mbdyn_stage_process(void* ctx, play_frame_block* block)
 {
     play_mbdyn_stage* stage = (play_mbdyn_stage*)ctx;
     uint32_t channels;
-    uint32_t stride;
 
-    if (stage == NULL || stage->state == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || stage->state == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
@@ -491,13 +516,13 @@ int play_mbdyn_stage_process(void* ctx, play_frame_block* block)
     }
 
     channels = channels_sanitize(block->channels);
-    stride = block->channels;
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            uint32_t idx = i * stride + ch;
-            play_mb_dyn_process_sample(stage->state, ch, &block->interleaved[idx]);
+            float sample = block_read_sample(block, i, ch);
+            play_mb_dyn_process_sample(stage->state, ch, &sample);
+            block_write_sample(block, i, ch, sample);
         }
     }
 
@@ -508,9 +533,8 @@ int play_observer_stage_process(void* ctx, play_frame_block* block)
 {
     play_observer_stage* stage = (play_observer_stage*)ctx;
     uint32_t channels;
-    uint32_t stride;
 
-    if (stage == NULL || stage->state == NULL || stage->metrics == NULL || block == NULL || block->interleaved == NULL)
+    if (stage == NULL || stage->state == NULL || stage->metrics == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
@@ -521,15 +545,13 @@ int play_observer_stage_process(void* ctx, play_frame_block* block)
         return -1;
     }
 
-    stride = block->channels;
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
-        uint32_t idx = i * stride;
         float mono = 0.0f;
 
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
-            mono += block->interleaved[idx + ch];
+            mono += block_read_sample(block, i, ch);
         }
         mono /= (float)channels;
 

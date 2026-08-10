@@ -83,6 +83,9 @@ static void audio_data_callback(ma_device* pDevice, void* pOutput, const void* p
 {
     app_audio_state* app = (app_audio_state*)pDevice->pUserData;
     float* out = (float*)pOutput;
+    uint32_t pipelineChannels;
+    float planarStorage[MAX_CHANNELS][frameCount > 0u ? frameCount : 1u];
+    float* planarPtrs[MAX_CHANNELS] = {0};
     ma_uint64 totalRead = 0;
     int rewindAttempts = 0;
 
@@ -110,9 +113,31 @@ static void audio_data_callback(ma_device* pDevice, void* pOutput, const void* p
         rewindAttempts = 0;
     }
 
+    pipelineChannels = (app->channels > MAX_CHANNELS) ? MAX_CHANNELS : app->channels;
+    for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+    {
+        planarPtrs[ch] = planarStorage[ch];
+    }
+
+    for (uint32_t i = 0; i < frameCount; ++i)
+    {
+        for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+        {
+            planarStorage[ch][i] = out[i * app->channels + ch];
+        }
+    }
+
     pthread_mutex_lock(&app->dspMutex);
-    play_dsp_process(&app->dsp, out, frameCount, app->channels);
+    play_dsp_process_planar(&app->dsp, planarPtrs, frameCount, pipelineChannels);
     pthread_mutex_unlock(&app->dspMutex);
+
+    for (uint32_t i = 0; i < frameCount; ++i)
+    {
+        for (uint32_t ch = 0; ch < pipelineChannels; ++ch)
+        {
+            out[i * app->channels + ch] = planarStorage[ch][i];
+        }
+    }
 }
 
 static void send_http_response(int clientFd, const char* contentType, const char* body)
