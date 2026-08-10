@@ -925,7 +925,7 @@ static void* http_server_thread_main(void* userData)
     return NULL;
 }
 
-const char* input_audio_file_path = "2.wav";
+const char* input_audio_file_path = "3.wav";
 
 int main(void)
 {

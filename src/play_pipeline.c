@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "miniaudio.h"
+
 void play_pipeline_init(play_pipeline* pipeline)
 {
     if (pipeline == NULL)
@@ -19,8 +21,6 @@ int play_pipeline_add_stage(play_pipeline* pipeline,
                             void* ctx,
                             play_pipeline_stage_fn process)
 {
-    int idx;
-
     if (pipeline == NULL || process == NULL)
     {
         return -1;
@@ -31,7 +31,7 @@ int play_pipeline_add_stage(play_pipeline* pipeline,
         return -1;
     }
 
-    idx = pipeline->stageCount;
+    const int idx = pipeline->stageCount;
     pipeline->stages[idx].name = name;
     pipeline->stages[idx].enabled = enabled ? 1 : 0;
     pipeline->stages[idx].ctx = ctx;
