@@ -14,6 +14,7 @@ add_executable(three_way_macos src/three_way_crossover_macos_offline.c
 
 add_executable(play_macos
                src/play_macos.c
+               src/dsp_http_ctrl.c
                src/play_dsp_common.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
