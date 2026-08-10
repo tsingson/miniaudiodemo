@@ -91,3 +91,15 @@ ModulesMaintainers.txt
 Nits.txt
 Pylint.txt
 YAMLLint.txt
+*/three_way_macos
+*/play_macos
+*/output_6ch.wav
+*/out.wav
+*/miniaudiodemo
+*/play_mcu
+*/test_pipeline_chain
+*/test_eq_normal
+*/test_eq_dynamic
+*/verify_eq_taps
+*/test_eq_linear
+*/verify_eq_gain
