@@ -3,10 +3,12 @@
 
 #include <stdint.h>
 
-#include "play_dsp_common.h"
+#include "play_dsp_defs.h"
 #include "play_eq_dynamic.h"
 #include "play_eq_linear.h"
 #include "play_pipeline.h"
+
+typedef struct play_dsp_state play_dsp_state;
 
 typedef struct
 {
@@ -96,13 +98,20 @@ typedef struct
 typedef struct
 {
     play_dsp_state* state;
+    uint8_t enabled;
     uint8_t position;
+    float ratio;
 } play_crossfeed_stage;
 
 typedef struct
 {
     play_dsp_state* state;
+    uint8_t enabled;
     uint8_t position;
+    float threshold;
+    float attack;
+    float release;
+    float strength;
 } play_mbdyn_stage;
 
 typedef struct
@@ -173,8 +182,19 @@ void play_normal_eq_stage_init(play_normal_eq_stage* stage,
                                uint8_t linearModeValue,
                                uint8_t normalModeValue);
 
-void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* state, uint8_t position);
-void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8_t position);
+void play_crossfeed_stage_init(play_crossfeed_stage* stage,
+                               play_dsp_state* state,
+                               int enabled,
+                               uint8_t position,
+                               float ratio);
+void play_mbdyn_stage_init(play_mbdyn_stage* stage,
+                           play_dsp_state* state,
+                           int enabled,
+                           uint8_t position,
+                           float threshold,
+                           float attack,
+                           float release,
+                           float strength);
 void play_observer_stage_init(play_observer_stage* stage,
                               play_dsp_state* state,
                               play_observer_metrics* metrics,

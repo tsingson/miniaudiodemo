@@ -2,8 +2,9 @@
 #include "play_eq_dynamic.h"
 #include "play_eq_linear.h"
 #include "play_eq_normal.h"
-#include "play_pipeline.h"
-#include "play_pipeline_eq_stages.h"
+#include "eq_low_seq.h"
+#include "play_eq_runtime.h"
+#include "play_dsp_plugins.h"
 #include "play_multiband_dynamics.h"
 
 #ifdef USE_CMSIS_DSP
@@ -63,117 +64,6 @@ static void rebuild_eq(play_dsp_state* state)
     play_eq_assign_band_modes(state);
     play_eq_linear_rebuild(state);
     play_eq_normal_rebuild(state);
-}
-
-static void eq_pipeline_copy_from_state(play_dsp_state* state,
-                                        play_linear_eq_stage* linearStage,
-                                        play_dynamic_eq_stage* dynamicStage,
-                                        play_normal_eq_stage* normalStage)
-{
-    for (int i = 0; i < PLAY_EQ_LINEAR_MAX_TAPS; ++i)
-    {
-        linearStage->linear.coeff[i] = state->linearFirCoeff[i];
-        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-        {
-            linearStage->linear.hist[i][ch] = state->linearFirHist[i][ch];
-        }
-    }
-    linearStage->linear.firEnabled = state->linearFirEnabled;
-    linearStage->linear.userEnabled = state->linearFirUserEnabled;
-    linearStage->linear.taps = state->linearFirTaps;
-    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-    {
-        linearStage->linear.writeIndex[ch] = state->linearFirWriteIndex[ch];
-        linearStage->linear.transientEnv[ch] = state->linearFirTransientEnv[ch];
-        linearStage->linear.lastDelayed[ch] = state->linearFirLastDelayed[ch];
-    }
-
-    for (int band = 0; band < EQ_BANDS; ++band)
-    {
-        dynamicStage->dynamicReductionDB[band] = state->dynamicReductionDB[band];
-        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-        {
-            dynamicStage->dynamicEnv[band][ch] = state->dynamicEnv[band][ch];
-            dynamicStage->svfIc1eq[band][ch] = state->svfIc1eq[band][ch];
-            dynamicStage->svfIc2eq[band][ch] = state->svfIc2eq[band][ch];
-            dynamicStage->x1[band][ch] = state->x1[band][ch];
-            dynamicStage->x2[band][ch] = state->x2[band][ch];
-            dynamicStage->y1[band][ch] = state->y1[band][ch];
-            dynamicStage->y2[band][ch] = state->y2[band][ch];
-
-            normalStage->svfIc1eq[band][ch] = state->svfIc1eq[band][ch];
-            normalStage->svfIc2eq[band][ch] = state->svfIc2eq[band][ch];
-            normalStage->x1[band][ch] = state->x1[band][ch];
-            normalStage->x2[band][ch] = state->x2[band][ch];
-            normalStage->y1[band][ch] = state->y1[band][ch];
-            normalStage->y2[band][ch] = state->y2[band][ch];
-        }
-    }
-
-    play_dynamic_eq_stage_set_params(dynamicStage,
-                                     state->dynamicAttack,
-                                     state->dynamicRelease,
-                                     state->dynamicThreshold,
-                                     state->dynamicMaxReductionDB,
-                                     state->dynamicStrengthDB);
-}
-
-static void eq_pipeline_copy_to_state(play_dsp_state* state,
-                                      const play_linear_eq_stage* linearStage,
-                                      const play_dynamic_eq_stage* dynamicStage,
-                                      const play_normal_eq_stage* normalStage)
-{
-    for (int i = 0; i < PLAY_EQ_LINEAR_MAX_TAPS; ++i)
-    {
-        state->linearFirCoeff[i] = linearStage->linear.coeff[i];
-        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-        {
-            state->linearFirHist[i][ch] = linearStage->linear.hist[i][ch];
-        }
-    }
-    state->linearFirEnabled = linearStage->linear.firEnabled;
-    state->linearFirUserEnabled = linearStage->linear.userEnabled;
-    state->linearFirTaps = linearStage->linear.taps;
-    for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-    {
-        state->linearFirWriteIndex[ch] = linearStage->linear.writeIndex[ch];
-        state->linearFirTransientEnv[ch] = linearStage->linear.transientEnv[ch];
-        state->linearFirLastDelayed[ch] = linearStage->linear.lastDelayed[ch];
-    }
-
-    for (int band = 0; band < EQ_BANDS; ++band)
-    {
-        state->dynamicReductionDB[band] = dynamicStage->dynamicReductionDB[band];
-        for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-        {
-            state->dynamicEnv[band][ch] = dynamicStage->dynamicEnv[band][ch];
-        }
-
-        if (state->bandModes[band] == (uint8_t)PLAY_EQ_MODE_DYNAMIC)
-        {
-            for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-            {
-                state->svfIc1eq[band][ch] = dynamicStage->svfIc1eq[band][ch];
-                state->svfIc2eq[band][ch] = dynamicStage->svfIc2eq[band][ch];
-                state->x1[band][ch] = dynamicStage->x1[band][ch];
-                state->x2[band][ch] = dynamicStage->x2[band][ch];
-                state->y1[band][ch] = dynamicStage->y1[band][ch];
-                state->y2[band][ch] = dynamicStage->y2[band][ch];
-            }
-        }
-        else if (state->bandModes[band] == (uint8_t)PLAY_EQ_MODE_NORMAL)
-        {
-            for (int ch = 0; ch < MAX_CHANNELS; ++ch)
-            {
-                state->svfIc1eq[band][ch] = normalStage->svfIc1eq[band][ch];
-                state->svfIc2eq[band][ch] = normalStage->svfIc2eq[band][ch];
-                state->x1[band][ch] = normalStage->x1[band][ch];
-                state->x2[band][ch] = normalStage->x2[band][ch];
-                state->y1[band][ch] = normalStage->y1[band][ch];
-                state->y2[band][ch] = normalStage->y2[band][ch];
-            }
-        }
-    }
 }
 
 static float goertzel_magnitude(const float* samples, int sampleCount, int k)
@@ -348,6 +238,10 @@ static void observer_window_complete(play_dsp_state* state)
 
 int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
 {
+    static const float kLowSeqDefaultFreqs[5] = {35.0f, 60.0f, 110.0f, 220.0f, 300.0f};
+    static const float kLowSeqDefaultGains[5] = {6.0f, 6.0f, 4.0f, 2.5f, 1.5f};
+    static const float kLowSeqDefaultQs[5] = {2.2f, 2.1f, 1.8f, 1.4f, 1.2f};
+
     memset(state, 0, sizeof(*state));
 
     state->sampleRate = sampleRate;
@@ -360,6 +254,20 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
     state->lowCrossfeedPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     play_eq_linear_init(state);
     play_mb_dyn_init(state);
+    eq_low_seq_init(&state->lowSeq, sampleRate, channels);
+    eq_low_seq_set_mode(&state->lowSeq, EQ_LOW_SEQ_MODE_BALANCED);
+    eq_low_seq_set_profile(&state->lowSeq,
+                           kLowSeqDefaultFreqs,
+                           kLowSeqDefaultGains,
+                           kLowSeqDefaultQs,
+                           5,
+                           1);
+    state->lowSeqEnabled = 1u;
+    state->lowSeqMode = (uint8_t)EQ_LOW_SEQ_MODE_BALANCED;
+    play_dsp_plugins_registry_init(state);
+    state->timingBefore = NULL;
+    state->timingAfter = NULL;
+    state->timingHookUserData = NULL;
     update_low_crossfeed_coeff(state);
 
     spectrum_init_bins(state);
@@ -515,6 +423,62 @@ void play_dsp_copy_multiband_dynamics_bands(const play_dsp_state* state,
     play_mb_dyn_copy_bands(state, outBandLowHz, outBandHighHz, maxCount);
 }
 
+void play_dsp_set_low_seq_enabled(play_dsp_state* state, int enabled)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    state->lowSeqEnabled = enabled ? 1u : 0u;
+}
+
+int play_dsp_get_low_seq_enabled(const play_dsp_state* state)
+{
+    if (state == NULL)
+    {
+        return 0;
+    }
+
+    return state->lowSeqEnabled ? 1 : 0;
+}
+
+void play_dsp_set_low_seq_mode(play_dsp_state* state, eq_low_seq_mode mode)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    eq_low_seq_set_mode(&state->lowSeq, mode);
+    state->lowSeqMode = (uint8_t)mode;
+}
+
+void play_dsp_set_low_seq_band(play_dsp_state* state, int bandIndex, float freqHz, float gainDb, float q, int enabled)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    eq_low_seq_set_band(&state->lowSeq, bandIndex, freqHz, gainDb, q, enabled);
+}
+
+void play_dsp_set_low_seq_profile(play_dsp_state* state,
+                                  const float* freqsHz,
+                                  const float* gainsDb,
+                                  const float* qs,
+                                  int count,
+                                  int enabled)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    eq_low_seq_set_profile(&state->lowSeq, freqsHz, gainsDb, qs, count, enabled);
+}
+
 void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled)
 {
     if (enabled)
@@ -530,6 +494,80 @@ void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int 
 uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state)
 {
     return state->pluginMask;
+}
+
+int play_dsp_plugin_set_order(play_dsp_state* state, const uint8_t* order, int count)
+{
+    return play_dsp_plugins_set_order(state, order, count);
+}
+
+int play_dsp_plugin_set_bypass(play_dsp_state* state, uint8_t pluginId, int bypass)
+{
+    return play_dsp_plugins_set_bypass(state, pluginId, bypass);
+}
+
+int play_dsp_plugin_set_channel_mask(play_dsp_state* state, uint8_t pluginId, uint8_t channelMask)
+{
+    return play_dsp_plugins_set_channel_mask(state, pluginId, channelMask);
+}
+
+int play_dsp_plugin_set_channel_bypass(play_dsp_state* state, uint32_t channel, uint8_t pluginId, int bypass)
+{
+    return play_dsp_plugins_set_channel_bypass(state, channel, pluginId, bypass);
+}
+
+int play_dsp_plugin_validate(play_dsp_state* state)
+{
+    return play_dsp_plugins_validate(state);
+}
+
+void play_dsp_set_timing_triggers(play_dsp_state* state,
+                                  play_dsp_timing_trigger_fn before,
+                                  play_dsp_timing_trigger_fn after,
+                                  void* userData)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    state->timingBefore = before;
+    state->timingAfter = after;
+    state->timingHookUserData = userData;
+}
+
+void play_dsp_get_timing_status(const play_dsp_state* state,
+                                uint64_t* outSequence,
+                                double* outBudgetMs,
+                                double* outProcessMs,
+                                double* outOverrunMs,
+                                int* outSourceThrottleHint)
+{
+    if (state == NULL)
+    {
+        return;
+    }
+
+    if (outSequence != NULL)
+    {
+        *outSequence = state->dspProcessSeq;
+    }
+    if (outBudgetMs != NULL)
+    {
+        *outBudgetMs = state->dspLastBudgetMs;
+    }
+    if (outProcessMs != NULL)
+    {
+        *outProcessMs = state->dspLastProcessMs;
+    }
+    if (outOverrunMs != NULL)
+    {
+        *outOverrunMs = state->dspLastOverrunMs;
+    }
+    if (outSourceThrottleHint != NULL)
+    {
+        *outSourceThrottleHint = state->sourceThrottleHint ? 1 : 0;
+    }
 }
 
 void play_dsp_get_dynamic_params(const play_dsp_state* state,
@@ -582,157 +620,41 @@ void play_dsp_process_planar(play_dsp_state* state,
                              uint32_t frameCount,
                              uint32_t channels)
 {
-    play_pipeline prePipeline;
-    play_pipeline eqPipeline;
-    play_pipeline postPipeline;
     play_observer_metrics observerMetrics;
-    play_observer_stage observerRawInStage;
-    play_observer_stage observerEqInStage;
-    play_observer_stage observerEqOutStage;
-    play_observer_stage observerOutStage;
-    play_eq_stage_profile profile;
-    play_crossfeed_stage preCrossfeedStage;
-    play_mbdyn_stage preMbDynStage;
-    play_linear_eq_stage linearStage;
-    play_dynamic_eq_stage dynamicStage;
-    play_normal_eq_stage normalStage;
-    play_mbdyn_stage postMbDynStage;
-    play_crossfeed_stage postCrossfeedStage;
+    play_dsp_plugins_runtime pluginsRuntime;
+    play_frame_block block;
+    uint32_t pipelineChannels;
 
     if (state == NULL || planarFrames == NULL || frameCount == 0u || channels == 0u)
     {
         return;
     }
 
-    play_eq_stage_profile_init(&profile,
-                               state->sampleRate,
-                               channels,
-                               state->bandFreqs,
-                               state->gainsDB,
-                               state->qValues,
-                               state->bandModes,
-                               EQ_BANDS);
+    pipelineChannels = (channels > MAX_CHANNELS) ? MAX_CHANNELS : channels;
 
-    play_linear_eq_stage_init(&linearStage,
-                              &profile,
-                              state->linearFirUserEnabled ? 1 : 0,
-                              (int)state->linearFirTaps,
-                              (uint8_t)PLAY_EQ_MODE_LINEAR);
-    play_dynamic_eq_stage_init(&dynamicStage,
-                               state->sampleRate,
-                               channels,
-                               state->bandFreqs,
-                               state->gainsDB,
-                               state->qValues,
-                               state->bandModes,
-                               EQ_BANDS,
-                               (uint8_t)PLAY_EQ_MODE_LINEAR,
-                               (uint8_t)PLAY_EQ_MODE_DYNAMIC);
-    play_normal_eq_stage_init(&normalStage,
-                              state->sampleRate,
-                              channels,
-                              state->bandFreqs,
-                              state->gainsDB,
-                              state->qValues,
-                              state->bandModes,
-                              EQ_BANDS,
-                              (uint8_t)PLAY_EQ_MODE_LINEAR,
-                              (uint8_t)PLAY_EQ_MODE_NORMAL);
+    observerMetrics.monoIn = 0.0f;
+    observerMetrics.monoEqIn = 0.0f;
+    observerMetrics.monoEqOut = 0.0f;
+    observerMetrics.monoOut = 0.0f;
 
-    play_crossfeed_stage_init(&preCrossfeedStage, state, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_mbdyn_stage_init(&preMbDynStage, state, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_mbdyn_stage_init(&postMbDynStage, state, (uint8_t)PLAY_CROSSFEED_POST_EQ);
-    play_crossfeed_stage_init(&postCrossfeedStage, state, (uint8_t)PLAY_CROSSFEED_POST_EQ);
-    play_observer_stage_init(&observerRawInStage,
+    block.interleaved = NULL;
+    block.planar = planarFrames;
+    block.layout = PLAY_BUFFER_LAYOUT_PLANAR;
+    block.frameCount = frameCount;
+    block.channels = pipelineChannels;
+    block.channelMask = PLAY_DSP_CHANNEL_BOTH;
+    block.sampleRate = state->sampleRate;
+
+    play_dsp_plugins_timing_begin(state, frameCount, pipelineChannels);
+    play_dsp_plugins_prepare(&pluginsRuntime,
                              state,
+                             &block,
+                             pipelineChannels,
                              &observerMetrics,
-                             PLAY_OBSERVER_INPUT_RAW,
-                             NULL);
-    play_observer_stage_init(&observerEqInStage,
-                             state,
-                             &observerMetrics,
-                             PLAY_OBSERVER_INPUT_EQ,
-                             NULL);
-    play_observer_stage_init(&observerEqOutStage,
-                             state,
-                             &observerMetrics,
-                             PLAY_OBSERVER_OUTPUT_EQ,
-                             NULL);
-    play_observer_stage_init(&observerOutStage,
-                             state,
-                             &observerMetrics,
-                             PLAY_OBSERVER_OUTPUT_FINAL,
                              observer_window_complete);
-
-    eq_pipeline_copy_from_state(state, &linearStage, &dynamicStage, &normalStage);
-
-    play_pipeline_init(&prePipeline);
-    (void)play_pipeline_add_stage(&prePipeline, "observe-input", 1, &observerRawInStage, play_observer_stage_process);
-    (void)play_pipeline_add_stage(&prePipeline,
-                                  "pre-crossfeed",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &preCrossfeedStage,
-                                  play_crossfeed_stage_process);
-    (void)play_pipeline_add_stage(&prePipeline,
-                                  "pre-mbdyn",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &preMbDynStage,
-                                  play_mbdyn_stage_process);
-    (void)play_pipeline_add_stage(&prePipeline, "observe-eq-in", 1, &observerEqInStage, play_observer_stage_process);
-
-    play_pipeline_init(&eqPipeline);
-    (void)play_pipeline_add_stage(&eqPipeline,
-                                  "linear-eq",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &linearStage,
-                                  play_linear_eq_stage_process);
-    (void)play_pipeline_add_stage(&eqPipeline,
-                                  "dynamic-eq",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &dynamicStage,
-                                  play_dynamic_eq_stage_process);
-    (void)play_pipeline_add_stage(&eqPipeline,
-                                  "normal-eq",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &normalStage,
-                                  play_normal_eq_stage_process);
-    (void)play_pipeline_add_stage(&eqPipeline, "observe-eq-out", 1, &observerEqOutStage, play_observer_stage_process);
-
-    play_pipeline_init(&postPipeline);
-    (void)play_pipeline_add_stage(&postPipeline,
-                                  "post-mbdyn",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &postMbDynStage,
-                                  play_mbdyn_stage_process);
-    (void)play_pipeline_add_stage(&postPipeline,
-                                  "post-crossfeed",
-                                  state->bypassEnabled ? 0 : 1,
-                                  &postCrossfeedStage,
-                                  play_crossfeed_stage_process);
-    (void)play_pipeline_add_stage(&postPipeline, "observe-output", 1, &observerOutStage, play_observer_stage_process);
-
-    {
-        play_frame_block block;
-        uint32_t pipelineChannels = (channels > MAX_CHANNELS) ? MAX_CHANNELS : channels;
-
-        observerMetrics.monoIn = 0.0f;
-        observerMetrics.monoEqIn = 0.0f;
-        observerMetrics.monoEqOut = 0.0f;
-        observerMetrics.monoOut = 0.0f;
-
-        block.interleaved = NULL;
-        block.planar = planarFrames;
-        block.layout = PLAY_BUFFER_LAYOUT_PLANAR;
-        block.frameCount = frameCount;
-        block.channels = pipelineChannels;
-        block.sampleRate = state->sampleRate;
-
-        (void)play_pipeline_run(&prePipeline, &block);
-        (void)play_pipeline_run(&eqPipeline, &block);
-        (void)play_pipeline_run(&postPipeline, &block);
-    }
-
-    eq_pipeline_copy_to_state(state, &linearStage, &dynamicStage, &normalStage);
+    play_dsp_plugins_run(&pluginsRuntime);
+    play_dsp_plugins_commit(&pluginsRuntime);
+    play_dsp_plugins_timing_end(state, frameCount, pipelineChannels);
 }
 
 void play_dsp_copy_bins(const play_dsp_state* state, float* outBins, int maxCount)

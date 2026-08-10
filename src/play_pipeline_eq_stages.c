@@ -1,5 +1,7 @@
 #include "play_pipeline_eq_stages.h"
 
+#include "play_dsp_common.h"
+
 #include "play_eq_normal.h"
 #include "play_multiband_dynamics.h"
 
@@ -31,6 +33,16 @@ static int bands_sanitize(int bandCount)
         return EQ_BANDS;
     }
     return bandCount;
+}
+
+static uint8_t block_channel_mask(const play_frame_block* block)
+{
+    if (block == NULL || block->channelMask == 0u)
+    {
+        return 0x03u;
+    }
+
+    return (uint8_t)(block->channelMask & 0x03u);
 }
 
 static float db_to_linear(float db)
@@ -269,7 +281,11 @@ void play_normal_eq_stage_init(play_normal_eq_stage* stage,
                                   stage->svfH);
 }
 
-void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* state, uint8_t position)
+void play_crossfeed_stage_init(play_crossfeed_stage* stage,
+                               play_dsp_state* state,
+                               int enabled,
+                               uint8_t position,
+                               float ratio)
 {
     if (stage == NULL)
     {
@@ -277,12 +293,21 @@ void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* stat
     }
 
     stage->state = state;
+    stage->enabled = enabled ? 1u : 0u;
     stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
                           ? (uint8_t)PLAY_CROSSFEED_POST_EQ
                           : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    stage->ratio = ratio;
 }
 
-void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8_t position)
+void play_mbdyn_stage_init(play_mbdyn_stage* stage,
+                           play_dsp_state* state,
+                           int enabled,
+                           uint8_t position,
+                           float threshold,
+                           float attack,
+                           float release,
+                           float strength)
 {
     if (stage == NULL)
     {
@@ -290,9 +315,25 @@ void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8
     }
 
     stage->state = state;
+    stage->enabled = enabled ? 1u : 0u;
     stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
                           ? (uint8_t)PLAY_CROSSFEED_POST_EQ
                           : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    stage->threshold = threshold;
+    stage->attack = attack;
+    stage->release = release;
+    stage->strength = strength;
+
+    if (stage->state != NULL)
+    {
+        play_mb_dyn_set_config(stage->state,
+                               stage->enabled ? 1 : 0,
+                               stage->position,
+                               stage->threshold,
+                               stage->attack,
+                               stage->release,
+                               stage->strength);
+    }
 }
 
 void play_observer_stage_init(play_observer_stage* stage,
@@ -316,6 +357,7 @@ int play_linear_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_linear_eq_stage* stage = (play_linear_eq_stage*)ctx;
     uint32_t channels;
+    uint8_t mask;
 
     if (stage == NULL || block == NULL || !block_has_layout(block))
     {
@@ -323,11 +365,17 @@ int play_linear_eq_stage_process(void* ctx, play_frame_block* block)
     }
 
     channels = channels_sanitize(block->channels);
+    mask = block_channel_mask(block);
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
+            if ((mask & (1u << ch)) == 0u)
+            {
+                continue;
+            }
+
             float in = block_read_sample(block, i, ch);
             float out = play_eq_linear_ctx_process_sample(&stage->linear, ch, in);
             block_write_sample(block, i, ch, out);
@@ -341,6 +389,7 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_dynamic_eq_stage* stage = (play_dynamic_eq_stage*)ctx;
     uint32_t channels;
+    uint8_t mask;
 
     if (stage == NULL || block == NULL || !block_has_layout(block))
     {
@@ -348,11 +397,17 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
     }
 
     channels = channels_sanitize(block->channels);
+    mask = block_channel_mask(block);
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
+            if ((mask & (1u << ch)) == 0u)
+            {
+                continue;
+            }
+
             float in = block_read_sample(block, i, ch);
 
             for (int band = 0; band < stage->bandCount; ++band)
@@ -420,6 +475,7 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
 {
     play_normal_eq_stage* stage = (play_normal_eq_stage*)ctx;
     uint32_t channels;
+    uint8_t mask;
 
     if (stage == NULL || block == NULL || !block_has_layout(block))
     {
@@ -427,11 +483,17 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
     }
 
     channels = channels_sanitize(block->channels);
+    mask = block_channel_mask(block);
 
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
+            if ((mask & (1u << ch)) == 0u)
+            {
+                continue;
+            }
+
             float in = block_read_sample(block, i, ch);
 
             for (int band = 0; band < stage->bandCount; ++band)
@@ -478,14 +540,21 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
 int play_crossfeed_stage_process(void* ctx, play_frame_block* block)
 {
     play_crossfeed_stage* stage = (play_crossfeed_stage*)ctx;
+    uint8_t mask;
 
     if (stage == NULL || stage->state == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
 
-    if (!stage->state->lowCrossfeedEnabled || stage->state->lowCrossfeedPosition != stage->position ||
+    if (!stage->enabled || stage->state->lowCrossfeedPosition != stage->position ||
         block->channels < 2u)
+    {
+        return 0;
+    }
+
+    mask = block_channel_mask(block);
+    if ((mask & 0x03u) != 0x03u)
     {
         return 0;
     }
@@ -497,8 +566,8 @@ int play_crossfeed_stage_process(void* ctx, play_frame_block* block)
         float lowL = crossfeed_lowpass_process(stage->state, 0u, inL);
         float lowR = crossfeed_lowpass_process(stage->state, 1u, inR);
 
-        block_write_sample(block, i, 0u, inL + PLAY_LOW_CROSSFEED_RATIO * lowR);
-        block_write_sample(block, i, 1u, inR + PLAY_LOW_CROSSFEED_RATIO * lowL);
+        block_write_sample(block, i, 0u, inL + stage->ratio * lowR);
+        block_write_sample(block, i, 1u, inR + stage->ratio * lowL);
     }
 
     return 0;
@@ -508,22 +577,29 @@ int play_mbdyn_stage_process(void* ctx, play_frame_block* block)
 {
     play_mbdyn_stage* stage = (play_mbdyn_stage*)ctx;
     uint32_t channels;
+    uint8_t mask;
 
     if (stage == NULL || stage->state == NULL || block == NULL || !block_has_layout(block))
     {
         return -1;
     }
 
-    if (!stage->state->mbDynEnabled || stage->state->mbDynPosition != stage->position)
+    if (!stage->enabled || stage->state->mbDynPosition != stage->position)
     {
         return 0;
     }
 
     channels = channels_sanitize(block->channels);
+    mask = block_channel_mask(block);
     for (uint32_t i = 0; i < block->frameCount; ++i)
     {
         for (uint32_t ch = 0; ch < channels; ++ch)
         {
+            if ((mask & (1u << ch)) == 0u)
+            {
+                continue;
+            }
+
             float sample = block_read_sample(block, i, ch);
             play_mb_dyn_process_sample(stage->state, ch, &sample);
             block_write_sample(block, i, ch, sample);

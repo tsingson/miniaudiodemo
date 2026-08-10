@@ -16,6 +16,9 @@ add_executable(play_macos
                src/play_macos.c
                src/dsp_http_ctrl.c
                src/play_dsp_common.c
+               src/play_dsp_plugins.c
+               src/play_eq_runtime.c
+               src/eq_low_seq.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
                src/play_eq_linear.c
@@ -26,6 +29,9 @@ add_executable(play_macos
 add_executable(play_mcu
                src/play_mcu.c
                src/play_dsp_common.c
+               src/play_dsp_plugins.c
+               src/play_eq_runtime.c
+               src/eq_low_seq.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
                src/play_eq_linear.c
@@ -33,8 +39,11 @@ add_executable(play_mcu
                src/play_eq_normal.c
                src/play_multiband_dynamics.c)
 add_executable(verify_eq_gain
-               src/verify_eq_gain.c
+               tests/verify_eq_gain.c
                src/play_dsp_common.c
+               src/play_dsp_plugins.c
+               src/play_eq_runtime.c
+               src/eq_low_seq.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
                src/play_eq_linear.c
@@ -42,14 +51,24 @@ add_executable(verify_eq_gain
                src/play_eq_normal.c
                src/play_multiband_dynamics.c)
 add_executable(verify_eq_taps
-               src/verify_eq_taps.c
+               tests/verify_eq_taps.c
                src/play_dsp_common.c
+               src/play_dsp_plugins.c
+               src/play_eq_runtime.c
+               src/eq_low_seq.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
                src/play_eq_linear.c
                src/play_eq_dynamic.c
                src/play_eq_normal.c
                src/play_multiband_dynamics.c)
+add_executable(verify_eq_linear_mono
+               tests/verify_eq_linear_mono.c
+               src/play_eq_linear.c
+               src/miniaudio/miniaudio.c)
+add_executable(verify_eq_low_seq
+               tests/test_eq_low_seq.c
+               src/eq_low_seq.c)
 add_executable(test_eq_dynamic
                tests/test_eq_dynamic.c
                src/play_eq_dynamic.c)
@@ -63,6 +82,8 @@ add_executable(test_pipeline_chain
                tests/test_pipeline_chain.c
                src/play_pipeline.c
                src/play_pipeline_eq_stages.c
+               src/play_eq_runtime.c
+               src/eq_low_seq.c
                src/play_eq_linear.c
                src/play_eq_dynamic.c
                src/play_eq_normal.c
@@ -76,6 +97,8 @@ target_include_directories(play_macos PRIVATE src)
 target_include_directories(play_mcu PRIVATE src)
 target_include_directories(verify_eq_gain PRIVATE src)
 target_include_directories(verify_eq_taps PRIVATE src)
+target_include_directories(verify_eq_linear_mono PRIVATE src)
+target_include_directories(verify_eq_low_seq PRIVATE src)
 target_include_directories(test_eq_dynamic PRIVATE src)
 target_include_directories(test_eq_normal PRIVATE src)
 target_include_directories(test_eq_linear PRIVATE src)
@@ -92,6 +115,8 @@ if(PLAY_USE_CMSIS_DSP)
     target_link_libraries(play_mcu PRIVATE CMSISDSP)
     target_link_libraries(verify_eq_gain PRIVATE CMSISDSP)
     target_link_libraries(verify_eq_taps PRIVATE CMSISDSP)
+    target_link_libraries(verify_eq_linear_mono PRIVATE CMSISDSP)
+    target_link_libraries(verify_eq_low_seq PRIVATE CMSISDSP)
     target_link_libraries(test_eq_linear PRIVATE CMSISDSP)
     target_compile_definitions(play_macos PRIVATE USE_CMSIS_DSP=1)
     target_compile_definitions(play_mcu PRIVATE USE_CMSIS_DSP=1)
@@ -122,6 +147,10 @@ endif()
 if(APPLE)
   target_link_libraries(verify_eq_gain PRIVATE m)
   target_link_libraries(verify_eq_taps PRIVATE m)
+  target_link_libraries(
+    verify_eq_linear_mono PRIVATE "-framework CoreAudio" "-framework CoreFoundation"
+                                 "-framework AudioToolbox")
+  target_link_libraries(verify_eq_low_seq PRIVATE m)
   target_link_libraries(test_eq_dynamic PRIVATE m)
   target_link_libraries(test_eq_normal PRIVATE m)
   target_link_libraries(test_eq_linear PRIVATE m)
@@ -130,6 +159,8 @@ if(APPLE)
 elseif(UNIX)
   target_link_libraries(verify_eq_gain PRIVATE pthread m dl)
   target_link_libraries(verify_eq_taps PRIVATE pthread m dl)
+  target_link_libraries(verify_eq_linear_mono PRIVATE pthread m dl)
+  target_link_libraries(verify_eq_low_seq PRIVATE pthread m dl)
   target_link_libraries(test_eq_dynamic PRIVATE pthread m dl)
   target_link_libraries(test_eq_normal PRIVATE pthread m dl)
   target_link_libraries(test_eq_linear PRIVATE pthread m dl)
@@ -151,6 +182,8 @@ target_compile_options(play_macos PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(play_mcu PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(verify_eq_gain PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(verify_eq_taps PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(verify_eq_linear_mono PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(verify_eq_low_seq PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_dynamic PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_normal PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_linear PRIVATE -Wall -Wno-unused-parameter)
@@ -202,6 +235,20 @@ add_custom_command(
   COMMENT "Copied verify_eq_taps to project root")
 
 add_custom_command(
+  TARGET verify_eq_linear_mono
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:verify_eq_linear_mono>
+    ${CMAKE_SOURCE_DIR}/verify_eq_linear_mono
+  COMMENT "Copied verify_eq_linear_mono to project root")
+
+add_custom_command(
+  TARGET verify_eq_low_seq
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:verify_eq_low_seq>
+    ${CMAKE_SOURCE_DIR}/verify_eq_low_seq
+  COMMENT "Copied verify_eq_low_seq to project root")
+
+add_custom_command(
   TARGET test_eq_dynamic
   POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_eq_dynamic>
@@ -237,9 +284,10 @@ add_custom_command(
   COMMENT "Copied test_channel_plan to project root")
 
 add_custom_target(run_eq_unit_tests
+  COMMAND ${CMAKE_SOURCE_DIR}/verify_eq_low_seq
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_dynamic
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_normal
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_linear
   COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_chain
   COMMAND ${CMAKE_SOURCE_DIR}/test_channel_plan
-  DEPENDS test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_channel_plan)
+  DEPENDS verify_eq_low_seq test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_channel_plan)

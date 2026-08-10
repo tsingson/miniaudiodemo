@@ -1,5 +1,6 @@
 #include "play_pipeline.h"
 #include "play_pipeline_eq_stages.h"
+#include "play_dsp_common.h"
 #include "play_eq_normal.h"
 #include "play_multiband_dynamics.h"
 
@@ -141,6 +142,7 @@ static void test_stage_order_regression(void)
     blockA.layout = PLAY_BUFFER_LAYOUT_INTERLEAVED;
     blockA.frameCount = 1;
     blockA.channels = 2;
+    blockA.channelMask = PLAY_DSP_CHANNEL_BOTH;
     blockA.sampleRate = 48000;
     blockB = blockA;
     blockB.interleaved = bufB;
@@ -182,6 +184,7 @@ static void test_planar_stage_order_regression(void)
     blockA.layout = PLAY_BUFFER_LAYOUT_PLANAR;
     blockA.frameCount = 1;
     blockA.channels = 2;
+    blockA.channelMask = PLAY_DSP_CHANNEL_BOTH;
     blockA.sampleRate = 48000;
 
     blockB = blockA;
@@ -222,10 +225,24 @@ static void test_crossfeed_mbdyn_stage_gates(void)
     dsp.lowCrossfeedLpA = expf(-2.0f * (float)M_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)dsp.sampleRate);
     play_mb_dyn_init(&dsp);
 
-    play_crossfeed_stage_init(&preCross, &dsp, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_crossfeed_stage_init(&postCross, &dsp, (uint8_t)PLAY_CROSSFEED_POST_EQ);
-    play_mbdyn_stage_init(&preMb, &dsp, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_mbdyn_stage_init(&postMb, &dsp, (uint8_t)PLAY_CROSSFEED_POST_EQ);
+    play_crossfeed_stage_init(&preCross, &dsp, 1, (uint8_t)PLAY_CROSSFEED_PRE_EQ, PLAY_LOW_CROSSFEED_RATIO);
+    play_crossfeed_stage_init(&postCross, &dsp, 1, (uint8_t)PLAY_CROSSFEED_POST_EQ, PLAY_LOW_CROSSFEED_RATIO);
+    play_mbdyn_stage_init(&preMb,
+                          &dsp,
+                          1,
+                          (uint8_t)PLAY_CROSSFEED_PRE_EQ,
+                          dsp.mbDynThreshold,
+                          dsp.mbDynAttack,
+                          dsp.mbDynRelease,
+                          dsp.mbDynStrength);
+    play_mbdyn_stage_init(&postMb,
+                          &dsp,
+                          1,
+                          (uint8_t)PLAY_CROSSFEED_POST_EQ,
+                          dsp.mbDynThreshold,
+                          dsp.mbDynAttack,
+                          dsp.mbDynRelease,
+                          dsp.mbDynStrength);
 
     play_pipeline_init(&p);
     play_pipeline_add_stage(&p, "pre-cross", 1, &preCross, play_crossfeed_stage_process);
@@ -235,6 +252,7 @@ static void test_crossfeed_mbdyn_stage_gates(void)
     b.layout = PLAY_BUFFER_LAYOUT_INTERLEAVED;
     b.frameCount = 1;
     b.channels = 2;
+    b.channelMask = PLAY_DSP_CHANNEL_BOTH;
     b.sampleRate = 48000;
 
     dsp.lowCrossfeedEnabled = 1u;
@@ -314,16 +332,31 @@ static void test_planar_crossfeed_mbdyn_stage_gates(void)
     dsp.lowCrossfeedLpA = expf(-2.0f * (float)M_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)dsp.sampleRate);
     play_mb_dyn_init(&dsp);
 
-    play_crossfeed_stage_init(&preCross, &dsp, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_crossfeed_stage_init(&postCross, &dsp, (uint8_t)PLAY_CROSSFEED_POST_EQ);
-    play_mbdyn_stage_init(&preMb, &dsp, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
-    play_mbdyn_stage_init(&postMb, &dsp, (uint8_t)PLAY_CROSSFEED_POST_EQ);
+    play_crossfeed_stage_init(&preCross, &dsp, 1, (uint8_t)PLAY_CROSSFEED_PRE_EQ, PLAY_LOW_CROSSFEED_RATIO);
+    play_crossfeed_stage_init(&postCross, &dsp, 1, (uint8_t)PLAY_CROSSFEED_POST_EQ, PLAY_LOW_CROSSFEED_RATIO);
+    play_mbdyn_stage_init(&preMb,
+                          &dsp,
+                          1,
+                          (uint8_t)PLAY_CROSSFEED_PRE_EQ,
+                          dsp.mbDynThreshold,
+                          dsp.mbDynAttack,
+                          dsp.mbDynRelease,
+                          dsp.mbDynStrength);
+    play_mbdyn_stage_init(&postMb,
+                          &dsp,
+                          1,
+                          (uint8_t)PLAY_CROSSFEED_POST_EQ,
+                          dsp.mbDynThreshold,
+                          dsp.mbDynAttack,
+                          dsp.mbDynRelease,
+                          dsp.mbDynStrength);
 
     memset(&b, 0, sizeof(b));
     b.planar = planar;
     b.layout = PLAY_BUFFER_LAYOUT_PLANAR;
     b.frameCount = 1;
     b.channels = 2;
+    b.channelMask = PLAY_DSP_CHANNEL_BOTH;
     b.sampleRate = 48000;
 
     play_pipeline_init(&p);
@@ -482,6 +515,7 @@ int main(void)
     block.layout = PLAY_BUFFER_LAYOUT_INTERLEAVED;
     block.frameCount = FRAMES;
     block.channels = CHANNELS;
+    block.channelMask = PLAY_DSP_CHANNEL_BOTH;
     block.sampleRate = SAMPLE_RATE;
 
     CHECK_TRUE(play_pipeline_run(&pipeline, &block) == 0, "pipeline_run_ok", "");

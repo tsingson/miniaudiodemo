@@ -18,6 +18,7 @@ typedef struct
     play_buffer_layout layout;
     uint32_t frameCount;
     uint32_t channels;
+    uint8_t channelMask;
     uint32_t sampleRate;
 } play_frame_block;
 

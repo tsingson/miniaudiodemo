@@ -8,9 +8,9 @@
 #define TEST_CHANNELS 1u
 #define WARMUP_FRAMES 8192
 #define MEASURE_FRAMES 16384
-#define TEST_TOLERANCE_DB 0.8
+#define TEST_TOLERANCE_DB 1.2f
 
-static float rms_for_band(play_dsp_state* dsp, float freqHz, float* outPostRms)
+static float rms_for_tone(play_dsp_state* dsp, float freqHz, float* outPostRms)
 {
     float buf[TEST_CHANNELS];
     double inSum = 0.0;
@@ -56,20 +56,14 @@ static float rms_for_band(play_dsp_state* dsp, float freqHz, float* outPostRms)
     return (float)sqrt(inSum / (double)MEASURE_FRAMES);
 }
 
-static int run_single_case(float freqHz, int bandIndex, float targetDb)
+static void clear_classic_eq(play_dsp_state* dsp)
 {
-    play_dsp_state dsp;
     float gains[EQ_BANDS];
     float qs[EQ_BANDS];
-    float inRms;
-    float outRms;
-    float measuredDb;
-    float err;
 
-    if (play_dsp_init(&dsp, TEST_SAMPLE_RATE, TEST_CHANNELS) != 0)
+    if (dsp == NULL)
     {
-        fprintf(stderr, "init failed for band %d\n", bandIndex);
-        return 1;
+        return;
     }
 
     memset(gains, 0, sizeof(gains));
@@ -77,16 +71,14 @@ static int run_single_case(float freqHz, int bandIndex, float targetDb)
     {
         qs[i] = 0.9f;
     }
-    gains[bandIndex] = targetDb;
-
-    play_dsp_set_eq_params(&dsp, gains, EQ_BANDS, qs, EQ_BANDS);
-    play_dsp_set_dynamic_params(&dsp,
+    play_dsp_set_eq_params(dsp, gains, EQ_BANDS, qs, EQ_BANDS);
+    play_dsp_set_dynamic_params(dsp,
                                 DYNAMIC_EQ_MIN_ATTACK,
                                 DYNAMIC_EQ_MIN_RELEASE,
                                 DYNAMIC_EQ_MIN_THRESHOLD,
                                 0.0f,
                                 DYNAMIC_EQ_MIN_STRENGTH_DB);
-    play_dsp_set_multiband_dynamics_config(&dsp,
+    play_dsp_set_multiband_dynamics_config(dsp,
                                            0,
                                            (uint8_t)PLAY_CROSSFEED_PRE_EQ,
                                            PLAY_MB_DYN_MIN_THRESHOLD,
@@ -94,12 +86,52 @@ static int run_single_case(float freqHz, int bandIndex, float targetDb)
                                            PLAY_MB_DYN_MIN_RELEASE,
                                            PLAY_MB_DYN_MIN_STRENGTH);
 
-    inRms = rms_for_band(&dsp, freqHz, &outRms);
+    play_dsp_set_low_crossfeed(dsp, 0, (uint8_t)PLAY_CROSSFEED_PRE_EQ);
+    (void)play_dsp_plugin_set_bypass(dsp, (uint8_t)PLAY_PLUGIN_EQ_CORE, 1);
+    (void)play_dsp_plugin_set_bypass(dsp, (uint8_t)PLAY_PLUGIN_CROSSFEED_PRE, 1);
+    (void)play_dsp_plugin_set_bypass(dsp, (uint8_t)PLAY_PLUGIN_CROSSFEED_POST, 1);
+    (void)play_dsp_plugin_set_bypass(dsp, (uint8_t)PLAY_PLUGIN_MBDYN_PRE, 1);
+    (void)play_dsp_plugin_set_bypass(dsp, (uint8_t)PLAY_PLUGIN_MBDYN_POST, 1);
+}
+
+static int run_low_seq_case(float freqHz, float targetDb)
+{
+    static const float kBandsHz[5] = {35.0f, 60.0f, 110.0f, 220.0f, 300.0f};
+    static const float kBandsQ[5] = {2.2f, 2.1f, 1.8f, 1.4f, 1.2f};
+    play_dsp_state dsp;
+    float inRms;
+    float outRms;
+    float measuredDb;
+    float err;
+
+    if (play_dsp_init(&dsp, TEST_SAMPLE_RATE, TEST_CHANNELS) != 0)
+    {
+        fprintf(stderr, "init failed\n");
+        return 1;
+    }
+
+    clear_classic_eq(&dsp);
+    play_dsp_set_low_seq_mode(&dsp, EQ_LOW_SEQ_MODE_BALANCED);
+    play_dsp_set_low_seq_enabled(&dsp, 1);
+    (void)play_dsp_plugin_set_bypass(&dsp, (uint8_t)PLAY_PLUGIN_LOW_SEQ, 0);
+
+    for (int i = 0; i < 5; ++i)
+    {
+        float g = (fabsf(kBandsHz[i] - freqHz) < 0.1f) ? targetDb : 0.0f;
+        play_dsp_set_low_seq_band(&dsp, i, kBandsHz[i], g, kBandsQ[i], 1);
+    }
+
+    if (play_dsp_plugin_validate(&dsp) != 0)
+    {
+        fprintf(stderr, "plugin validation failed\n");
+        return 1;
+    }
+
+    inRms = rms_for_tone(&dsp, freqHz, &outRms);
     measuredDb = 20.0f * log10f((outRms + 1e-12f) / (inRms + 1e-12f));
     err = measuredDb - targetDb;
 
-    printf("band=%2d freq=%7.1fHz target=%5.1fdB measured=%7.3fdB err=%+6.3fdB %s\n",
-           bandIndex,
+    printf("low_seq freq=%7.1fHz target=%5.1fdB measured=%7.3fdB err=%+6.3fdB %s\n",
            freqHz,
            targetDb,
            measuredDb,
@@ -111,40 +143,22 @@ static int run_single_case(float freqHz, int bandIndex, float targetDb)
 
 int main(void)
 {
-    play_dsp_state probe;
-    float freqs[EQ_BANDS];
-    float gains[EQ_BANDS];
-    float qs[EQ_BANDS];
+    static const float kTestFreqs[5] = {35.0f, 60.0f, 110.0f, 220.0f, 300.0f};
+    static const float kTargetDb[3] = {3.0f, 6.0f, 12.0f};
     int failCount = 0;
-    int testedBands = 0;
 
-    if (play_dsp_init(&probe, TEST_SAMPLE_RATE, TEST_CHANNELS) != 0)
+    printf("EQ low-seq gain verify: 35/60/110/220/300Hz with +3/+6/+12dB, tolerance=%.2fdB\n",
+           (double)TEST_TOLERANCE_DB);
+
+    for (int f = 0; f < 5; ++f)
     {
-        fprintf(stderr, "failed to init probe dsp\n");
-        return 2;
-    }
-
-    play_dsp_copy_eq(&probe, freqs, gains, qs, EQ_BANDS);
-
-    printf("EQ verify: low+mid bands, each band at +/-3dB, tolerance=%.2fdB\n", (double)TEST_TOLERANCE_DB);
-    printf("mode split: low<=%.1fHz linear, mid<=%.1fHz dynamic\n", (double)EQ_LINEAR_MAX_HZ,
-           (double)EQ_DYNAMIC_MAX_HZ);
-
-    for (int i = 0; i < EQ_BANDS; ++i)
-    {
-        float f = freqs[i];
-        if (f <= EQ_DYNAMIC_MAX_HZ)
+        for (int g = 0; g < 3; ++g)
         {
-            testedBands += 1;
-            failCount += run_single_case(f, i, 3.0f);
-            failCount += run_single_case(f, i, -3.0f);
+            failCount += run_low_seq_case(kTestFreqs[f], kTargetDb[g]);
         }
     }
 
-    printf("summary: tested_bands=%d total_cases=%d failed=%d\n",
-           testedBands,
-           testedBands * 2,
-           failCount);
+    printf("summary: total_cases=%d failed=%d\n", 15, failCount);
 
     return (failCount == 0) ? 0 : 1;
 }

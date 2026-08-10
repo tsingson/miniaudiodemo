@@ -196,3 +196,38 @@ cmake --build build --target run_eq_unit_tests verify_eq_taps verify_eq_gain pla
 
 - 新增 `play_channel_plan` 模块（stereo -> 5.1，planar 路由）
 - 新增 `test_channel_plan` 回归并接入 `run_eq_unit_tests`
+
+## 12. 建议频段与职责
+
+结合当前实现与回归结果，建议按模块分工使用：
+
+1. 20Hz - 300Hz：`eq_low_seq` 主负责
+- 目标：低频/超低频的有效增益（如 35/60/110/220/300Hz）。
+- 原因：IIR peaking 在低频窄带提升下更容易得到可听见增益，且算法延迟接近 0ms。
+- 建议：重低音增强优先使用 `eq_low_seq`，而不是 `play_eq_linear`。
+
+2. 300Hz - 2000Hz：`play_eq_linear` 适合做宽带、温和整形
+- 目标：保持相位一致性的前提下做音色修整。
+- 原因：当前 `play_eq_linear` 为短 taps FIR（17/25/33），更适合中频的宽带修正。
+- 建议：增益幅度以小到中等为主（例如 +/-1 到 +/-3dB），Q 不宜过窄。
+
+3. 2000Hz - 8000Hz：`play_eq_linear` 可继续使用，但以轻量修饰为主
+- 目标：齿音、明亮度、清晰度微调。
+- 风险：高 Q 或大增益可能更容易引入主观振铃感。
+- 建议：优先宽 Q、小增益。
+
+4. 8000Hz 以上：更建议 `normal/dynamic` EQ 处理
+- 目标：细节与瞬态的局部控制。
+- 原因：短 FIR 在线性相位约束下不擅长高频激进塑形。
+
+### 推荐默认职责边界
+
+- `eq_low_seq`：20Hz - 300Hz
+- `play_eq_linear`：300Hz - 4000Hz（主工作区）
+- `dynamic/normal`：4000Hz 以上为主，按素材可向下扩展
+
+### 实践说明
+
+- `verify_eq_gain` 已改为针对 `eq_low_seq` 的增益验证（35/60/110/220/300Hz，+3/+6/+12dB）。
+- `verify_eq_linear_mono` 仍用于验证线性相位一致性、低振铃与延迟约束。
+- 因此建议把“低频增益效果”和“线性相位一致性”拆成两类目标分别验证。

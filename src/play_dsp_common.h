@@ -3,67 +3,14 @@
 
 #include <stdint.h>
 
+#include "play_dsp_defs.h"
+
 #ifdef USE_CMSIS_DSP
 #include "arm_math.h"
 #endif
 
-#define ANALYZER_WINDOW 512
-#define ANALYZER_BINS 48
-#define MAX_CHANNELS 2
-#define EQ_BANDS 16
-#define EQ_MIN_GAIN_DB -36.0f
-#define EQ_MAX_GAIN_DB 36.0f
-#define EQ_MIN_Q 0.3f
-#define EQ_MAX_Q 12.0f
-#define EQ_LOW_SVF_MAX_HZ 1000.0f
-
-#define EQ_LINEAR_MAX_HZ 220.0f
-#define EQ_DYNAMIC_MAX_HZ 16000.0f
-#define PLAY_LINEAR_FIR_MAX_TAPS 33
-#define PLAY_LINEAR_FIR_DEFAULT_TAPS 25
-#define DYNAMIC_EQ_MIN_ATTACK 0.01f
-#define DYNAMIC_EQ_MAX_ATTACK 0.50f
-#define DYNAMIC_EQ_MIN_RELEASE 0.005f
-#define DYNAMIC_EQ_MAX_RELEASE 0.30f
-#define DYNAMIC_EQ_MIN_THRESHOLD 0.01f
-#define DYNAMIC_EQ_MAX_THRESHOLD 1.00f
-#define DYNAMIC_EQ_MIN_MAX_REDUCTION_DB 0.0f
-#define DYNAMIC_EQ_MAX_MAX_REDUCTION_DB 36.0f
-#define DYNAMIC_EQ_MIN_STRENGTH_DB 1.0f
-#define DYNAMIC_EQ_MAX_STRENGTH_DB 36.0f
-
-#define PLAY_MB_DYN_BANDS 8
-#define PLAY_MB_DYN_MIN_DB -6.0f
-#define PLAY_MB_DYN_MAX_DB 6.0f
-#define PLAY_MB_DYN_MIN_THRESHOLD 0.01f
-#define PLAY_MB_DYN_MAX_THRESHOLD 1.00f
-#define PLAY_MB_DYN_MIN_ATTACK 0.002f
-#define PLAY_MB_DYN_MAX_ATTACK 0.20f
-#define PLAY_MB_DYN_MIN_RELEASE 0.005f
-#define PLAY_MB_DYN_MAX_RELEASE 0.50f
-#define PLAY_MB_DYN_MIN_STRENGTH 0.1f
-#define PLAY_MB_DYN_MAX_STRENGTH 8.0f
-#define PLAY_MB_DYN_DEFAULT_THRESHOLD 0.16f
-#define PLAY_MB_DYN_DEFAULT_ATTACK 0.02f
-#define PLAY_MB_DYN_DEFAULT_RELEASE 0.06f
-#define PLAY_MB_DYN_DEFAULT_STRENGTH 1.2f
-
-#define PLAY_DSP_PLUGIN_PHASE_ANALYZER 0x01u
-#define PLAY_LOW_CROSSFEED_CUTOFF_HZ 150.0f
-#define PLAY_LOW_CROSSFEED_RATIO 0.40f
-
-typedef enum
-{
-    PLAY_CROSSFEED_PRE_EQ = 0,
-    PLAY_CROSSFEED_POST_EQ = 1
-} play_crossfeed_position;
-
-typedef enum
-{
-    PLAY_EQ_MODE_LINEAR = 0,
-    PLAY_EQ_MODE_DYNAMIC = 1,
-    PLAY_EQ_MODE_NORMAL = 2
-} play_eq_mode;
+#include "eq_low_seq.h"
+#include "play_dsp_plugins.h"
 
 typedef struct play_dsp_state
 {
@@ -109,6 +56,24 @@ typedef struct play_dsp_state
     float mbDynEnv[PLAY_MB_DYN_BANDS][MAX_CHANNELS];
     float mbDynLpA[PLAY_MB_DYN_BANDS - 1];
     float mbDynLpState[PLAY_MB_DYN_BANDS - 1][MAX_CHANNELS];
+    uint8_t lowSeqEnabled;
+    uint8_t lowSeqMode;
+    eq_low_seq_ctx lowSeq;
+    play_dsp_plugin_slot_config pluginSlots[PLAY_PLUGIN_SLOT_COUNT];
+    uint8_t pluginOrder[PLAY_PLUGIN_SLOT_COUNT];
+    uint8_t pluginOrderCount;
+    uint8_t pluginPerChannelBypassMode;
+    uint8_t pluginBypassByChannel[MAX_CHANNELS][PLAY_PLUGIN_SLOT_COUNT];
+    double dspLastStartMs;
+    double dspLastEndMs;
+    double dspLastProcessMs;
+    double dspLastBudgetMs;
+    double dspLastOverrunMs;
+    uint64_t dspProcessSeq;
+    uint8_t sourceThrottleHint;
+    play_dsp_timing_trigger_fn timingBefore;
+    play_dsp_timing_trigger_fn timingAfter;
+    void* timingHookUserData;
     float phaseDeltaDeg[ANALYZER_BINS];
     float groupDelayMs[ANALYZER_BINS];
 
@@ -195,8 +160,33 @@ void play_dsp_copy_multiband_dynamics_bands(const play_dsp_state* state,
                                             float* outBandLowHz,
                                             float* outBandHighHz,
                                             int maxCount);
+void play_dsp_set_low_seq_enabled(play_dsp_state* state, int enabled);
+int play_dsp_get_low_seq_enabled(const play_dsp_state* state);
+void play_dsp_set_low_seq_mode(play_dsp_state* state, eq_low_seq_mode mode);
+void play_dsp_set_low_seq_band(play_dsp_state* state, int bandIndex, float freqHz, float gainDb, float q, int enabled);
+void play_dsp_set_low_seq_profile(play_dsp_state* state,
+                                  const float* freqsHz,
+                                  const float* gainsDb,
+                                  const float* qs,
+                                  int count,
+                                  int enabled);
 void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled);
 uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state);
+int play_dsp_plugin_set_order(play_dsp_state* state, const uint8_t* order, int count);
+int play_dsp_plugin_set_bypass(play_dsp_state* state, uint8_t pluginId, int bypass);
+int play_dsp_plugin_set_channel_mask(play_dsp_state* state, uint8_t pluginId, uint8_t channelMask);
+int play_dsp_plugin_set_channel_bypass(play_dsp_state* state, uint32_t channel, uint8_t pluginId, int bypass);
+int play_dsp_plugin_validate(play_dsp_state* state);
+void play_dsp_set_timing_triggers(play_dsp_state* state,
+                                  play_dsp_timing_trigger_fn before,
+                                  play_dsp_timing_trigger_fn after,
+                                  void* userData);
+void play_dsp_get_timing_status(const play_dsp_state* state,
+                                uint64_t* outSequence,
+                                double* outBudgetMs,
+                                double* outProcessMs,
+                                double* outOverrunMs,
+                                int* outSourceThrottleHint);
 void play_dsp_process(play_dsp_state* state,
                       float* interleavedFrames,
                       uint32_t frameCount,
