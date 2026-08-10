@@ -6,9 +6,11 @@
 #include <stddef.h>
 
 static const float kMbDynBandLowHz[PLAY_MB_DYN_BANDS] = {
-    20.0f, 80.0f, 150.0f, 300.0f, 700.0f, 1500.0f, 4000.0f, 10000.0f};
+    20.0f, 80.0f, 150.0f, 300.0f, 700.0f, 1500.0f, 4000.0f, 10000.0f
+};
 static const float kMbDynBandHighHz[PLAY_MB_DYN_BANDS] = {
-    80.0f, 150.0f, 300.0f, 700.0f, 1500.0f, 4000.0f, 10000.0f, 16000.0f};
+    80.0f, 150.0f, 300.0f, 700.0f, 1500.0f, 4000.0f, 10000.0f, 16000.0f
+};
 
 static float clampf(float v, float lo, float hi)
 {
@@ -73,8 +75,9 @@ void play_mb_dyn_set_config(play_dsp_state* state,
                             float strength)
 {
     state->mbDynEnabled = enabled ? 1u : 0u;
-    state->mbDynPosition = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
-                                                                           : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    state->mbDynPosition = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+                               ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                               : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     state->mbDynThreshold = clampf(threshold, PLAY_MB_DYN_MIN_THRESHOLD, PLAY_MB_DYN_MAX_THRESHOLD);
     state->mbDynAttack = clampf(attack, PLAY_MB_DYN_MIN_ATTACK, PLAY_MB_DYN_MAX_ATTACK);
     state->mbDynRelease = clampf(release, PLAY_MB_DYN_MIN_RELEASE, PLAY_MB_DYN_MAX_RELEASE);

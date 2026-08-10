@@ -277,8 +277,9 @@ void play_crossfeed_stage_init(play_crossfeed_stage* stage, play_dsp_state* stat
     }
 
     stage->state = state;
-    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
-                                                                     : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+                          ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                          : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
 }
 
 void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8_t position)
@@ -289,8 +290,9 @@ void play_mbdyn_stage_init(play_mbdyn_stage* stage, play_dsp_state* state, uint8
     }
 
     stage->state = state;
-    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
-                                                                     : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+    stage->position = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
+                          ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                          : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
 }
 
 void play_observer_stage_init(play_observer_stage* stage,
@@ -374,7 +376,8 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
                 }
                 else
                 {
-                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[band][ch]
+                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[
+                            band][ch]
                         - stage->a1[band] * stage->y1[band][ch] - stage->a2[band] * stage->y2[band][ch];
 
                     stage->x2[band][ch] = stage->x1[band][ch];
@@ -452,7 +455,8 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
                 }
                 else
                 {
-                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[band][ch]
+                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[
+                            band][ch]
                         - stage->a1[band] * stage->y1[band][ch] - stage->a2[band] * stage->y2[band][ch];
 
                     stage->x2[band][ch] = stage->x1[band][ch];

@@ -127,7 +127,8 @@ int main(void)
     play_dsp_copy_eq(&probe, freqs, gains, qs, EQ_BANDS);
 
     printf("EQ verify: low+mid bands, each band at +/-3dB, tolerance=%.2fdB\n", (double)TEST_TOLERANCE_DB);
-    printf("mode split: low<=%.1fHz linear, mid<=%.1fHz dynamic\n", (double)EQ_LINEAR_MAX_HZ, (double)EQ_DYNAMIC_MAX_HZ);
+    printf("mode split: low<=%.1fHz linear, mid<=%.1fHz dynamic\n", (double)EQ_LINEAR_MAX_HZ,
+           (double)EQ_DYNAMIC_MAX_HZ);
 
     for (int i = 0; i < EQ_BANDS; ++i)
     {

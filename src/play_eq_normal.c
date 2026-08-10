@@ -65,11 +65,14 @@ void play_eq_normal_init_default_profile_arrays(float* outFreqs, float* outGains
 {
     const float freqs[EQ_BANDS] = {
         20.0f, 35.0f, 60.0f, 110.0f, 220.0f, 360.0f, 700.0f, 1600.0f, 3200.0f, 4800.0f, 7200.0f, 10000.0f,
-        16000.0f, 18000.0f, 20000.0f, 22000.0f};
+        16000.0f, 18000.0f, 20000.0f, 22000.0f
+    };
     const float gains[EQ_BANDS] = {
-        3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -3.0f, -24.0f, -24.0f};
+        3.0f, 3.0f, 3.0f, 3.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -3.0f, -24.0f, -24.0f
+    };
     const float qs[EQ_BANDS] = {
-        0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f};
+        0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f, 0.9f
+    };
     int count = (bandCount < EQ_BANDS) ? bandCount : EQ_BANDS;
 
     if (outFreqs == NULL || outGains == NULL || outQs == NULL || count <= 0)

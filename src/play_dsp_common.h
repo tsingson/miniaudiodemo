@@ -197,7 +197,10 @@ void play_dsp_copy_multiband_dynamics_bands(const play_dsp_state* state,
                                             int maxCount);
 void play_dsp_set_plugin_enabled(play_dsp_state* state, uint32_t pluginBit, int enabled);
 uint32_t play_dsp_get_plugin_mask(const play_dsp_state* state);
-void play_dsp_process(play_dsp_state* state, float* interleavedFrames, uint32_t frameCount, uint32_t channels);
+void play_dsp_process(play_dsp_state* state,
+                      float* interleavedFrames,
+                      uint32_t frameCount,
+                      uint32_t channels);
 void play_dsp_process_planar(play_dsp_state* state,
                              float* const* planarFrames,
                              uint32_t frameCount,

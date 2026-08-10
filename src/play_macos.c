@@ -471,23 +471,23 @@ static void handle_http_request(http_server_state* http, int clientFd)
                                     &dynamicMaxReductionDB,
                                     &dynamicStrengthDB);
         play_dsp_get_linear_fir_config(&http->app->dsp,
-                           &linearFirEnabled,
-                           &linearFirTaps,
-                           &linearFirDelaySamples,
-                           &linearFirDelayMs);
+                                       &linearFirEnabled,
+                                       &linearFirTaps,
+                                       &linearFirDelaySamples,
+                                       &linearFirDelayMs);
         play_dsp_get_multiband_dynamics_config(&http->app->dsp,
-                               &mbDynEnabled,
-                               &mbDynPosition,
-                               &mbDynThreshold,
-                               &mbDynAttack,
-                               &mbDynRelease,
-                               &mbDynStrength);
+                                               &mbDynEnabled,
+                                               &mbDynPosition,
+                                               &mbDynThreshold,
+                                               &mbDynAttack,
+                                               &mbDynRelease,
+                                               &mbDynStrength);
         play_dsp_copy_multiband_dynamics_amounts(&http->app->dsp, mbDynBandAmountDb, PLAY_MB_DYN_BANDS);
         play_dsp_copy_multiband_dynamics_applied_db(&http->app->dsp, mbDynBandAppliedDb, PLAY_MB_DYN_BANDS);
         play_dsp_copy_multiband_dynamics_bands(&http->app->dsp,
-                               mbDynBandLowHz,
-                               mbDynBandHighHz,
-                               PLAY_MB_DYN_BANDS);
+                                               mbDynBandLowHz,
+                                               mbDynBandHighHz,
+                                               PLAY_MB_DYN_BANDS);
         bypassEnabled = play_dsp_get_bypass(&http->app->dsp);
         play_dsp_get_low_crossfeed(&http->app->dsp, &lowCrossfeedEnabled, &lowCrossfeedPosition);
         pluginMask = play_dsp_get_plugin_mask(&http->app->dsp);
@@ -497,7 +497,7 @@ static void handle_http_request(http_server_state* http, int clientFd)
 
         offset += snprintf(body + offset,
                            sizeof(body) - (size_t)offset,
-                   "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"rmsLogEnabled\":%s,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"linearFirEnabled\":%s,\"linearFirTaps\":%d,\"linearFirDelaySamples\":%d,\"linearFirDelayMs\":%.4f,\"linearFirSupportedTaps\":[17,25,33],\"mbDynEnabled\":%s,\"mbDynPosition\":%u,\"mbDynThreshold\":%.4f,\"mbDynAttack\":%.4f,\"mbDynRelease\":%.4f,\"mbDynStrength\":%.3f,\"mbDynBandMinDB\":%.1f,\"mbDynBandMaxDB\":%.1f,\"mbDynThresholdMin\":%.3f,\"mbDynThresholdMax\":%.3f,\"mbDynAttackMin\":%.4f,\"mbDynAttackMax\":%.3f,\"mbDynReleaseMin\":%.3f,\"mbDynReleaseMax\":%.3f,\"mbDynStrengthMin\":%.2f,\"mbDynStrengthMax\":%.1f,\"freqs\":[",
+                           "{\"minGain\":%.1f,\"maxGain\":%.1f,\"minQ\":%.2f,\"maxQ\":%.2f,\"sampleRate\":%u,\"phasePluginEnabled\":%s,\"bypassEnabled\":%s,\"lowCrossfeedEnabled\":%s,\"lowCrossfeedPosition\":%u,\"lowCrossfeedCutoffHz\":%.1f,\"lowCrossfeedRatio\":%.2f,\"rmsLogEnabled\":%s,\"dynamicAttack\":%.4f,\"dynamicRelease\":%.4f,\"dynamicThreshold\":%.4f,\"dynamicMaxReductionDB\":%.2f,\"dynamicStrengthDB\":%.2f,\"dynamicAttackMin\":%.3f,\"dynamicAttackMax\":%.3f,\"dynamicReleaseMin\":%.3f,\"dynamicReleaseMax\":%.3f,\"dynamicThresholdMin\":%.3f,\"dynamicThresholdMax\":%.3f,\"dynamicMaxReductionDBMin\":%.1f,\"dynamicMaxReductionDBMax\":%.1f,\"dynamicStrengthDBMin\":%.1f,\"dynamicStrengthDBMax\":%.1f,\"linearFirEnabled\":%s,\"linearFirTaps\":%d,\"linearFirDelaySamples\":%d,\"linearFirDelayMs\":%.4f,\"linearFirSupportedTaps\":[17,25,33],\"mbDynEnabled\":%s,\"mbDynPosition\":%u,\"mbDynThreshold\":%.4f,\"mbDynAttack\":%.4f,\"mbDynRelease\":%.4f,\"mbDynStrength\":%.3f,\"mbDynBandMinDB\":%.1f,\"mbDynBandMaxDB\":%.1f,\"mbDynThresholdMin\":%.3f,\"mbDynThresholdMax\":%.3f,\"mbDynAttackMin\":%.4f,\"mbDynAttackMax\":%.3f,\"mbDynReleaseMin\":%.3f,\"mbDynReleaseMax\":%.3f,\"mbDynStrengthMin\":%.2f,\"mbDynStrengthMax\":%.1f,\"freqs\":[",
                            EQ_MIN_GAIN_DB,
                            EQ_MAX_GAIN_DB,
                            EQ_MIN_Q,
@@ -859,8 +859,9 @@ static void handle_http_request(http_server_state* http, int clientFd)
             }
             if (hasMbDynPosition)
             {
-                currentPosition = (mbDynPositionValue >= 0.5f) ? (uint8_t)PLAY_CROSSFEED_POST_EQ
-                                                               : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
+                currentPosition = (mbDynPositionValue >= 0.5f)
+                                      ? (uint8_t)PLAY_CROSSFEED_POST_EQ
+                                      : (uint8_t)PLAY_CROSSFEED_PRE_EQ;
             }
             if (hasMbDynThreshold)
             {
@@ -1130,8 +1131,8 @@ int main(void)
 
     printf("正在循环播放 test.wav（20-300Hz +3dB EQ）。\n");
     printf("频谱可视化: http://127.0.0.1:%d\n", HTTP_PORT);
-        printf("RMS 日志: %s（POST /eq: {\"rmsLogEnabled\":0|1}，或环境变量 PLAY_RMS_LOG=1）\n",
-            app.rmsLogEnabled ? "ON" : "OFF");
+    printf("RMS 日志: %s（POST /eq: {\"rmsLogEnabled\":0|1}，或环境变量 PLAY_RMS_LOG=1）\n",
+           app.rmsLogEnabled ? "ON" : "OFF");
     printf("按回车键退出。\n");
     getchar();
 

@@ -90,11 +90,11 @@ int play_channel_plan_prepare_stereo_to_5_1(play_channel_plan* plan)
     plan->outChannels = 6u;
 
     /* Output order: L, R, C, LFE, Ls, Rs. */
-    plan->matrix[0][0] = 1.0f;       /* L  <- L */
-    plan->matrix[1][1] = 1.0f;       /* R  <- R */
+    plan->matrix[0][0] = 1.0f; /* L  <- L */
+    plan->matrix[1][1] = 1.0f; /* R  <- R */
     plan->matrix[2][0] = 0.7071068f; /* C  <- L */
     plan->matrix[2][1] = 0.7071068f; /* C  <- R */
-    plan->matrix[3][0] = 0.0f;       /* LFE left for dedicated stage */
+    plan->matrix[3][0] = 0.0f; /* LFE left for dedicated stage */
     plan->matrix[3][1] = 0.0f;
     plan->matrix[4][0] = 0.7071068f; /* Ls <- L */
     plan->matrix[5][1] = 0.7071068f; /* Rs <- R */
