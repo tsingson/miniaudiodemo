@@ -33,8 +33,8 @@
 
 ### 3.1 文件与接口
 
-- 头文件：`src/eq_low_seq.h`
-- 实现：`src/eq_low_seq.c`
+- 头文件：`src/dspeq/eq_low_seq.h`
+- 实现：`src/dspeq/eq_low_seq.c`
 
 核心接口：
 

@@ -46,6 +46,9 @@
 #define PLAY_LOW_CROSSFEED_CUTOFF_HZ 150.0f
 #define PLAY_LOW_CROSSFEED_RATIO 0.40f
 
+/* C17 does not guarantee M_PI from <math.h>; use this shared constant in DSP code. */
+#define PLAY_DSP_PI 3.14159265358979323846
+
 typedef enum
 {
     PLAY_CROSSFEED_PRE_EQ = 0,

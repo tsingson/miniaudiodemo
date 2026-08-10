@@ -54,7 +54,7 @@ static float clampf(float v, float lo, float hi)
 static double peaking_mag_at(double sampleRate, double f, double f0, double gainDb, double q)
 {
     double A = pow(10.0, gainDb / 40.0);
-    double w0 = 2.0 * M_PI * f0 / sampleRate;
+    double w0 = 2.0 * PLAY_DSP_PI * f0 / sampleRate;
     double alpha = sin(w0) / (2.0 * q);
     double b0 = 1.0 + alpha * A;
     double b1 = -2.0 * cos(w0);
@@ -62,7 +62,7 @@ static double peaking_mag_at(double sampleRate, double f, double f0, double gain
     double a0 = 1.0 + alpha / A;
     double a1 = -2.0 * cos(w0);
     double a2 = 1.0 - alpha / A;
-    double w = 2.0 * M_PI * f / sampleRate;
+    double w = 2.0 * PLAY_DSP_PI * f / sampleRate;
     double c1 = cos(w);
     double s1 = sin(w);
     double c2 = cos(2.0 * w);
@@ -199,8 +199,8 @@ void play_eq_linear_ctx_rebuild(play_eq_linear_ctx* ctx,
 
     for (int k = 0; k < PLAY_LINEAR_FIR_DESIGN_BINS; ++k)
     {
-        double w = M_PI * (double)k / (double)(PLAY_LINEAR_FIR_DESIGN_BINS - 1);
-        double f = w * (double)ctx->sampleRate / (2.0 * M_PI);
+        double w = PLAY_DSP_PI * (double)k / (double)(PLAY_LINEAR_FIR_DESIGN_BINS - 1);
+        double f = w * (double)ctx->sampleRate / (2.0 * PLAY_DSP_PI);
         double mag = 1.0;
 
         for (int b = 0; b < bandCount; ++b)
@@ -235,13 +235,13 @@ void play_eq_linear_ctx_rebuild(play_eq_linear_ctx* ctx,
         double m = (double)n - (double)delay;
         for (int k = 0; k < PLAY_LINEAR_FIR_DESIGN_BINS; ++k)
         {
-            double w = M_PI * (double)k / (double)(PLAY_LINEAR_FIR_DESIGN_BINS - 1);
+            double w = PLAY_DSP_PI * (double)k / (double)(PLAY_LINEAR_FIR_DESIGN_BINS - 1);
             double wt = ((k == 0) || (k == PLAY_LINEAR_FIR_DESIGN_BINS - 1)) ? 0.5 : 1.0;
             acc += wt * mags[k] * cos(w * m);
         }
 
         acc /= (double)(PLAY_LINEAR_FIR_DESIGN_BINS - 1);
-        acc *= (0.54 - 0.46 * cos((2.0 * M_PI * (double)n) / (double)(taps - 1)));
+        acc *= (0.54 - 0.46 * cos((2.0 * PLAY_DSP_PI * (double)n) / (double)(taps - 1)));
         ctx->coeff[n] = (float)acc;
     }
 
@@ -332,6 +332,11 @@ float play_eq_linear_ctx_process_sample(play_eq_linear_ctx* ctx, uint32_t ch, fl
 
 void play_eq_linear_init(play_dsp_state* state)
 {
+    if (state == NULL)
+    {
+        return;
+    }
+
     state->linearFirEnabled = 0u;
     state->linearFirUserEnabled = 1u;
     state->linearFirTaps = (uint8_t)PLAY_LINEAR_FIR_DEFAULT_TAPS;
@@ -354,6 +359,11 @@ void play_eq_linear_init(play_dsp_state* state)
 
 void play_eq_linear_set_config(play_dsp_state* state, int enabled, int taps)
 {
+    if (state == NULL)
+    {
+        return;
+    }
+
     state->linearFirUserEnabled = enabled ? 1u : 0u;
     state->linearFirTaps = (uint8_t)linear_taps_sanitize(taps);
 }
@@ -364,8 +374,16 @@ void play_eq_linear_get_config(const play_dsp_state* state,
                                int* outDelaySamples,
                                float* outDelayMs)
 {
-    int taps = linear_taps_sanitize((int)state->linearFirTaps);
-    int delay = (taps - 1) / 2;
+    int taps;
+    int delay;
+
+    if (state == NULL)
+    {
+        return;
+    }
+
+    taps = linear_taps_sanitize((int)state->linearFirTaps);
+    delay = (taps - 1) / 2;
 
     if (outEnabled != NULL)
     {
@@ -437,6 +455,11 @@ float play_eq_linear_process_sample(play_dsp_state* state, uint32_t ch, float in
     int w;
     int taps;
     int delay;
+
+    if (state == NULL)
+    {
+        return in;
+    }
 
     if (ch >= MAX_CHANNELS)
     {

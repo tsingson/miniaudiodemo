@@ -16,7 +16,7 @@
 
 - host 端：play_macos
 - MCU 端：play_mcu
-- 共用 DSP：src/play_dsp_common.c
+- 共用 DSP：src/dspeq/play_dsp_common.c
 
 ## 2. 三类 EQ 规则
 
@@ -26,7 +26,7 @@
 - Dynamic: 220Hz < f <= 16000Hz
 - Normal: f > 16000Hz
 
-对应宏定义见 src/play_dsp_common.h：
+对应宏定义见 src/dspeq/play_dsp_common.h：
 
 - EQ_LINEAR_MAX_HZ = 220.0f
 - EQ_DYNAMIC_MAX_HZ = 16000.0f
@@ -95,7 +95,7 @@ play_dsp_process 当前每帧顺序：
 - `mbDynBandAmountDb[]`：目标值（UI 配置）
 - `mbDynBandAppliedDb[]`：实时生效值（平滑后）
 
-关键范围（src/play_dsp_common.h）：
+关键范围（src/dspeq/play_dsp_common.h）：
 
 - PLAY_MB_DYN_MIN_DB = -6.0f
 - PLAY_MB_DYN_MAX_DB = 6.0f
@@ -145,14 +145,14 @@ play_dsp_process 当前每帧顺序：
 
 已拆分模块：
 
-- src/play_eq_linear.h/.c
-- src/play_eq_dynamic.h/.c
-- src/play_eq_normal.h/.c
-- src/play_multiband_dynamics.h/.c
-- src/play_pipeline.h/.c
-- src/play_pipeline_eq_stages.h/.c
+- src/dspeq/play_eq_linear.h/.c
+- src/dspeq/play_eq_dynamic.h/.c
+- src/dspeq/play_eq_normal.h/.c
+- src/dspeq/play_multiband_dynamics.h/.c
+- src/dspeq/play_pipeline.h/.c
+- src/dspeq/play_pipeline_eq_stages.h/.c
 
-其中主链路编排集中在 src/play_dsp_common.c。
+其中主链路编排集中在 src/dspeq/play_dsp_common.c。
 
 ## 10. 构建与回归建议
 

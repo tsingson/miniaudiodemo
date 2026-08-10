@@ -5,6 +5,7 @@
 
 typedef struct play_dsp_state play_dsp_state;
 
+/* RBJ peaking biquad builder; output coefficients are a0-normalized. */
 void play_eq_normal_build_peaking(double gainDb,
                                   double q,
                                   double frequency,
@@ -15,6 +16,7 @@ void play_eq_normal_build_peaking(double gainDb,
                                   double* outA1,
                                   double* outA2);
 
+/* 12 dB/oct lowpass biquad builder; output coefficients are a0-normalized. */
 void play_eq_normal_build_lowpass_12db(double cutoffHz,
                                        double sampleRate,
                                        double q,

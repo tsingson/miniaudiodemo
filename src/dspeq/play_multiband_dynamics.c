@@ -32,9 +32,14 @@ static float db_to_linear(float db)
 
 static void update_multiband_dynamics_coeff(play_dsp_state* state)
 {
+    if (state == NULL || state->sampleRate == 0u)
+    {
+        return;
+    }
+
     for (int i = 0; i < PLAY_MB_DYN_BANDS - 1; ++i)
     {
-        float w = 2.0f * (float)M_PI * kMbDynBandHighHz[i] / (float)state->sampleRate;
+        float w = 2.0f * (float)PLAY_DSP_PI * kMbDynBandHighHz[i] / (float)state->sampleRate;
         state->mbDynLpA[i] = expf(-w);
     }
 }
@@ -48,6 +53,11 @@ static float multiband_lowpass_process(play_dsp_state* state, int split, uint32_
 
 void play_mb_dyn_init(play_dsp_state* state)
 {
+    if (state == NULL)
+    {
+        return;
+    }
+
     state->mbDynEnabled = 0u;
     state->mbDynPosition = (uint8_t)PLAY_CROSSFEED_PRE_EQ;
     state->mbDynThreshold = PLAY_MB_DYN_DEFAULT_THRESHOLD;
@@ -74,6 +84,11 @@ void play_mb_dyn_set_config(play_dsp_state* state,
                             float release,
                             float strength)
 {
+    if (state == NULL)
+    {
+        return;
+    }
+
     state->mbDynEnabled = enabled ? 1u : 0u;
     state->mbDynPosition = (position == (uint8_t)PLAY_CROSSFEED_POST_EQ)
                                ? (uint8_t)PLAY_CROSSFEED_POST_EQ
@@ -92,6 +107,11 @@ void play_mb_dyn_get_config(const play_dsp_state* state,
                             float* outRelease,
                             float* outStrength)
 {
+    if (state == NULL)
+    {
+        return;
+    }
+
     if (outEnabled != NULL)
     {
         *outEnabled = state->mbDynEnabled ? 1 : 0;
@@ -120,6 +140,11 @@ void play_mb_dyn_get_config(const play_dsp_state* state,
 
 void play_mb_dyn_set_amounts(play_dsp_state* state, const float* amountsDb, int count)
 {
+    if (state == NULL || amountsDb == NULL || count <= 0)
+    {
+        return;
+    }
+
     int n = (count < PLAY_MB_DYN_BANDS) ? count : PLAY_MB_DYN_BANDS;
     for (int i = 0; i < n; ++i)
     {
@@ -129,6 +154,11 @@ void play_mb_dyn_set_amounts(play_dsp_state* state, const float* amountsDb, int 
 
 void play_mb_dyn_copy_amounts(const play_dsp_state* state, float* outAmountsDb, int maxCount)
 {
+    if (state == NULL || outAmountsDb == NULL || maxCount <= 0)
+    {
+        return;
+    }
+
     int n = (maxCount < PLAY_MB_DYN_BANDS) ? maxCount : PLAY_MB_DYN_BANDS;
     for (int i = 0; i < n; ++i)
     {
@@ -138,6 +168,11 @@ void play_mb_dyn_copy_amounts(const play_dsp_state* state, float* outAmountsDb, 
 
 void play_mb_dyn_copy_applied_db(const play_dsp_state* state, float* outAppliedDb, int maxCount)
 {
+    if (state == NULL || outAppliedDb == NULL || maxCount <= 0)
+    {
+        return;
+    }
+
     int n = (maxCount < PLAY_MB_DYN_BANDS) ? maxCount : PLAY_MB_DYN_BANDS;
     for (int i = 0; i < n; ++i)
     {
@@ -147,6 +182,11 @@ void play_mb_dyn_copy_applied_db(const play_dsp_state* state, float* outAppliedD
 
 void play_mb_dyn_copy_bands(const play_dsp_state* state, float* outBandLowHz, float* outBandHighHz, int maxCount)
 {
+    if (state == NULL || maxCount <= 0)
+    {
+        return;
+    }
+
     int n = (maxCount < PLAY_MB_DYN_BANDS) ? maxCount : PLAY_MB_DYN_BANDS;
     for (int i = 0; i < n; ++i)
     {
@@ -163,6 +203,11 @@ void play_mb_dyn_copy_bands(const play_dsp_state* state, float* outBandLowHz, fl
 
 void play_mb_dyn_process_sample(play_dsp_state* state, uint32_t ch, float* inOut)
 {
+    if (state == NULL || inOut == NULL || ch >= MAX_CHANNELS)
+    {
+        return;
+    }
+
     float x = *inOut;
     float low[PLAY_MB_DYN_BANDS - 1];
     float bands[PLAY_MB_DYN_BANDS];

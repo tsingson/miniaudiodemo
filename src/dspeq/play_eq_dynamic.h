@@ -3,9 +3,11 @@
 
 typedef struct
 {
+    /* Envelope coefficients and threshold are normalized to sample magnitude [0, 1]. */
     float attack;
     float release;
     float threshold;
+    /* Reduction/strength are in dB units. */
     float maxReductionDB;
     float strengthDB;
 } play_eq_dynamic_params;
@@ -13,6 +15,7 @@ typedef struct
 typedef struct play_dsp_state play_dsp_state;
 
 float play_eq_dynamic_update_env(float env, float absSample, float attack, float release);
+/* Returns positive attenuation value in dB; caller applies it as a negative gain. */
 float play_eq_dynamic_compute_reduction(float env,
                                         float threshold,
                                         float strengthDb,

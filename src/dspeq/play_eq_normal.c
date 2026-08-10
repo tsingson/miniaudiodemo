@@ -15,8 +15,13 @@ void play_eq_normal_build_peaking(double gainDb,
                                   double* outA1,
                                   double* outA2)
 {
+    if (outB0 == NULL || outB1 == NULL || outB2 == NULL || outA1 == NULL || outA2 == NULL)
+    {
+        return;
+    }
+
     double a = pow(10.0, gainDb / 40.0);
-    double w0 = 2.0 * M_PI * frequency / sampleRate;
+    double w0 = 2.0 * PLAY_DSP_PI * frequency / sampleRate;
     double cosw0 = cos(w0);
     double sinw0 = sin(w0);
     double alpha = sinw0 / (2.0 * q);
@@ -43,7 +48,12 @@ void play_eq_normal_build_lowpass_12db(double cutoffHz,
                                        double* outA1,
                                        double* outA2)
 {
-    double w0 = 2.0 * M_PI * cutoffHz / sampleRate;
+    if (outB0 == NULL || outB1 == NULL || outB2 == NULL || outA1 == NULL || outA2 == NULL)
+    {
+        return;
+    }
+
+    double w0 = 2.0 * PLAY_DSP_PI * cutoffHz / sampleRate;
     double cosw0 = cos(w0);
     double sinw0 = sin(w0);
     double alpha = sinw0 / (2.0 * q);
@@ -163,7 +173,7 @@ void play_eq_normal_rebuild_arrays(uint32_t sampleRate,
 
         if (outUseSVF[i])
         {
-            double g = tan(M_PI * frequency / (double)sampleRate);
+            double g = tan(PLAY_DSP_PI * frequency / (double)sampleRate);
             double k = 1.0 / q;
             double aBell = pow(10.0, gainDB / 40.0);
             double h = 1.0 / (1.0 + g * (g + k));

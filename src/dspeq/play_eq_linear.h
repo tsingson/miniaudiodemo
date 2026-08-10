@@ -11,8 +11,10 @@ typedef struct
 {
     uint32_t sampleRate;
     uint32_t channels;
+    /* firEnabled reflects runtime availability after rebuild; userEnabled is operator intent. */
     uint8_t firEnabled;
     uint8_t userEnabled;
+    /* taps is sanitized to {17, 25, 33}. */
     uint8_t taps;
     float coeff[PLAY_EQ_LINEAR_MAX_TAPS];
     float hist[PLAY_EQ_LINEAR_MAX_TAPS][PLAY_EQ_LINEAR_MAX_CHANNELS];
@@ -27,6 +29,7 @@ double play_eq_linear_map_gain_db(double sliderGainDb);
 
 void play_eq_linear_ctx_init(play_eq_linear_ctx* ctx, uint32_t sampleRate, uint32_t channels);
 void play_eq_linear_ctx_set_config(play_eq_linear_ctx* ctx, int enabled, int taps);
+/* Delay outputs reflect FIR group delay from current taps. */
 void play_eq_linear_ctx_get_config(const play_eq_linear_ctx* ctx,
                                    int* outEnabled,
                                    int* outTaps,

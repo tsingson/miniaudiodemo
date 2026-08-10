@@ -304,7 +304,7 @@ flowchart LR
 ## 9. 推荐落地步骤
 
 1. 定义 Pipeline 公共头文件
-- 新增 src/play_pipeline.h
+- 新增 src/dspeq/play_pipeline.h
 - 定义 FrameBlock、StageFn、Stage、Pipeline
 
 2. 为三类 EQ 补齐 stage 包装
@@ -435,8 +435,8 @@ MVP 通过后，再扩展到：
 
 当前代码已经完成可组合主链路的第一轮完整落地：
 
-- 已新增通用 pipeline 框架：src/play_pipeline.h、src/play_pipeline.c
-- 已新增 EQ 三阶段 wrapper：src/play_pipeline_eq_stages.h、src/play_pipeline_eq_stages.c
+- 已新增通用 pipeline 框架：src/dspeq/play_pipeline.h、src/dspeq/play_pipeline.c
+- 已新增 EQ 三阶段 wrapper：src/dspeq/play_pipeline_eq_stages.h、src/dspeq/play_pipeline_eq_stages.c
 - 已新增 Channel Plan 模块骨架：src/play_channel_plan.h、src/play_channel_plan.c（stereo -> 5.1 planar 路由）
 - 已新增链路测试：tests/test_pipeline_chain.c
 - 已新增 Channel Plan 单测：tests/test_channel_plan.c

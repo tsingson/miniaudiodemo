@@ -6,6 +6,7 @@
 typedef struct play_dsp_state play_dsp_state;
 
 void play_mb_dyn_init(play_dsp_state* state);
+/* Threshold/attack/release/strength are clamped to PLAY_MB_DYN_* bounds. */
 void play_mb_dyn_set_config(play_dsp_state* state,
                             int enabled,
                             uint8_t position,
@@ -20,10 +21,12 @@ void play_mb_dyn_get_config(const play_dsp_state* state,
                             float* outAttack,
                             float* outRelease,
                             float* outStrength);
+/* amountsDb uses one value per band, in dB, clamped to PLAY_MB_DYN_MIN/MAX_DB. */
 void play_mb_dyn_set_amounts(play_dsp_state* state, const float* amountsDb, int count);
 void play_mb_dyn_copy_amounts(const play_dsp_state* state, float* outAmountsDb, int maxCount);
 void play_mb_dyn_copy_applied_db(const play_dsp_state* state, float* outAppliedDb, int maxCount);
 void play_mb_dyn_copy_bands(const play_dsp_state* state, float* outBandLowHz, float* outBandHighHz, int maxCount);
+/* In-place per-sample processor for a single channel. */
 void play_mb_dyn_process_sample(play_dsp_state* state, uint32_t ch, float* inOut);
 
 #endif

@@ -55,7 +55,7 @@ static void spectrum_init_bins(play_dsp_state* state)
 
 static void update_low_crossfeed_coeff(play_dsp_state* state)
 {
-    float w = 2.0f * (float)M_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)state->sampleRate;
+    float w = 2.0f * (float)PLAY_DSP_PI * PLAY_LOW_CROSSFEED_CUTOFF_HZ / (float)state->sampleRate;
     state->lowCrossfeedLpA = expf(-w);
 }
 
@@ -75,7 +75,7 @@ static float goertzel_magnitude(const float* samples, int sampleCount, int k)
     float q2;
     int i;
 
-    w = (2.0f * (float)M_PI * (float)k) / (float)sampleCount;
+    w = (2.0f * (float)PLAY_DSP_PI * (float)k) / (float)sampleCount;
     coeff = 2.0f * cosf(w);
     q0 = 0.0f;
     q1 = 0.0f;
@@ -93,7 +93,7 @@ static float goertzel_magnitude(const float* samples, int sampleCount, int k)
 
 static float goertzel_phase(const float* samples, int sampleCount, int k)
 {
-    float w = (2.0f * (float)M_PI * (float)k) / (float)sampleCount;
+    float w = (2.0f * (float)PLAY_DSP_PI * (float)k) / (float)sampleCount;
     float coeff = 2.0f * cosf(w);
     float q0 = 0.0f;
     float q1 = 0.0f;
@@ -115,13 +115,13 @@ static float goertzel_phase(const float* samples, int sampleCount, int k)
 
 static float wrap_pi(float x)
 {
-    while (x > (float)M_PI)
+    while (x > (float)PLAY_DSP_PI)
     {
-        x -= 2.0f * (float)M_PI;
+        x -= 2.0f * (float)PLAY_DSP_PI;
     }
-    while (x < -(float)M_PI)
+    while (x < -(float)PLAY_DSP_PI)
     {
-        x += 2.0f * (float)M_PI;
+        x += 2.0f * (float)PLAY_DSP_PI;
     }
     return x;
 }
@@ -140,18 +140,18 @@ static void update_phase_metrics(play_dsp_state* state)
         if (i > 0)
         {
             float prev = phaseDiff[i - 1];
-            while (d - prev > (float)M_PI)
+            while (d - prev > (float)PLAY_DSP_PI)
             {
-                d -= 2.0f * (float)M_PI;
+                d -= 2.0f * (float)PLAY_DSP_PI;
             }
-            while (d - prev < -(float)M_PI)
+            while (d - prev < -(float)PLAY_DSP_PI)
             {
-                d += 2.0f * (float)M_PI;
+                d += 2.0f * (float)PLAY_DSP_PI;
             }
         }
 
         phaseDiff[i] = d;
-        state->phaseDeltaDeg[i] = d * (180.0f / (float)M_PI);
+        state->phaseDeltaDeg[i] = d * (180.0f / (float)PLAY_DSP_PI);
     }
 
     for (int i = 0; i < ANALYZER_BINS; ++i)
@@ -166,7 +166,7 @@ static void update_phase_metrics(play_dsp_state* state)
 
         if (df > 1e-6f)
         {
-            gd = -dp / (2.0f * (float)M_PI * df);
+            gd = -dp / (2.0f * (float)PLAY_DSP_PI * df);
         }
 
         state->groupDelayMs[i] = gd * 1000.0f;

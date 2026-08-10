@@ -15,95 +15,95 @@ add_executable(three_way_macos src/three_way_crossover_macos_offline.c
 add_executable(play_macos
                src/play_macos.c
                src/dsp_http_ctrl.c
-               src/play_dsp_common.c
-               src/play_dsp_plugins.c
-               src/play_eq_runtime.c
-               src/eq_low_seq.c
-               src/play_pipeline.c
-               src/play_pipeline_eq_stages.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c
+               src/dspeq/play_dsp_common.c
+               src/dspeq/play_dsp_plugins.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c
                src/miniaudio/miniaudio.c)
 add_executable(play_mcu
                src/play_mcu.c
-               src/play_dsp_common.c
-               src/play_dsp_plugins.c
-               src/play_eq_runtime.c
-               src/eq_low_seq.c
-               src/play_pipeline.c
-               src/play_pipeline_eq_stages.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c)
+               src/dspeq/play_dsp_common.c
+               src/dspeq/play_dsp_plugins.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c)
 add_executable(verify_eq_gain
                tests/verify_eq_gain.c
-               src/play_dsp_common.c
-               src/play_dsp_plugins.c
-               src/play_eq_runtime.c
-               src/eq_low_seq.c
-               src/play_pipeline.c
-               src/play_pipeline_eq_stages.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c)
+               src/dspeq/play_dsp_common.c
+               src/dspeq/play_dsp_plugins.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c)
 add_executable(verify_eq_taps
                tests/verify_eq_taps.c
-               src/play_dsp_common.c
-               src/play_dsp_plugins.c
-               src/play_eq_runtime.c
-               src/eq_low_seq.c
-               src/play_pipeline.c
-               src/play_pipeline_eq_stages.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c)
+               src/dspeq/play_dsp_common.c
+               src/dspeq/play_dsp_plugins.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c)
 add_executable(verify_eq_linear_mono
                tests/verify_eq_linear_mono.c
-               src/play_eq_linear.c
+               src/dspeq/play_eq_linear.c
                src/miniaudio/miniaudio.c)
 add_executable(verify_eq_low_seq
                tests/test_eq_low_seq.c
-               src/eq_low_seq.c)
+               src/dspeq/eq_low_seq.c)
 add_executable(test_eq_dynamic
                tests/test_eq_dynamic.c
-               src/play_eq_dynamic.c)
+               src/dspeq/play_eq_dynamic.c)
 add_executable(test_eq_normal
                tests/test_eq_normal.c
-               src/play_eq_normal.c)
+               src/dspeq/play_eq_normal.c)
 add_executable(test_eq_linear
                tests/test_eq_linear.c
-               src/play_eq_linear.c)
+               src/dspeq/play_eq_linear.c)
 add_executable(test_pipeline_chain
                tests/test_pipeline_chain.c
-               src/play_pipeline.c
-               src/play_pipeline_eq_stages.c
-               src/play_eq_runtime.c
-               src/eq_low_seq.c
-               src/play_eq_linear.c
-               src/play_eq_dynamic.c
-               src/play_eq_normal.c
-               src/play_multiband_dynamics.c)
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c)
 add_executable(test_channel_plan
                tests/test_channel_plan.c
                src/play_channel_plan.c)
-target_include_directories(miniaudiodemo PRIVATE src)
-target_include_directories(three_way_macos PRIVATE src)
-target_include_directories(play_macos PRIVATE src)
-target_include_directories(play_mcu PRIVATE src)
-target_include_directories(verify_eq_gain PRIVATE src)
-target_include_directories(verify_eq_taps PRIVATE src)
-target_include_directories(verify_eq_linear_mono PRIVATE src)
-target_include_directories(verify_eq_low_seq PRIVATE src)
-target_include_directories(test_eq_dynamic PRIVATE src)
-target_include_directories(test_eq_normal PRIVATE src)
-target_include_directories(test_eq_linear PRIVATE src)
-target_include_directories(test_pipeline_chain PRIVATE src)
-target_include_directories(test_channel_plan PRIVATE src)
+target_include_directories(miniaudiodemo PRIVATE src src/dspeq)
+target_include_directories(three_way_macos PRIVATE src src/dspeq)
+target_include_directories(play_macos PRIVATE src src/dspeq)
+target_include_directories(play_mcu PRIVATE src src/dspeq)
+target_include_directories(verify_eq_gain PRIVATE src src/dspeq)
+target_include_directories(verify_eq_taps PRIVATE src src/dspeq)
+target_include_directories(verify_eq_linear_mono PRIVATE src src/dspeq)
+target_include_directories(verify_eq_low_seq PRIVATE src src/dspeq)
+target_include_directories(test_eq_dynamic PRIVATE src src/dspeq)
+target_include_directories(test_eq_normal PRIVATE src src/dspeq)
+target_include_directories(test_eq_linear PRIVATE src src/dspeq)
+target_include_directories(test_pipeline_chain PRIVATE src src/dspeq)
+target_include_directories(test_channel_plan PRIVATE src src/dspeq)
 
 if(PLAY_USE_CMSIS_DSP)
   set(CMSIS_DSP_DIR "${CMAKE_SOURCE_DIR}/../CMSIS-DSP")

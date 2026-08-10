@@ -3858,6 +3858,29 @@ typedef ma_uint16 wchar_t;
 
 
 /* Platform/backend detection. */
+#if defined(__ZEPHYR__) || defined(CONFIG_ZEPHYR)
+    #define MA_ZEPHYR
+
+    /*
+    Zephyr/MCU-safe defaults:
+    - No pthread-based abstractions.
+    - No runtime dynamic loader dependencies.
+    - No host device I/O path in the generic build.
+    */
+    #ifndef MA_NO_DEVICE_IO
+    #define MA_NO_DEVICE_IO
+    #endif
+
+    #ifndef MA_NO_THREADING
+    #define MA_NO_THREADING
+    #endif
+
+    #ifndef MA_NO_RUNTIME_LINKING
+    #define MA_NO_RUNTIME_LINKING
+    #endif
+
+#endif
+
 #if defined(_WIN32)
     #define MA_WIN32
     #if defined(MA_FORCE_UWP) || (defined(WINAPI_FAMILY) && ((defined(WINAPI_FAMILY_PC_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PC_APP) || (defined(WINAPI_FAMILY_PHONE_APP) && WINAPI_FAMILY == WINAPI_FAMILY_PHONE_APP)))
@@ -3892,7 +3915,7 @@ typedef ma_uint16 wchar_t;
     #define MA_NO_RUNTIME_LINKING
     #endif
 #endif
-#if !defined(MA_WIN32) && !defined(MA_DOS)    /* If it's not Win32, assume POSIX. */
+#if !defined(MA_WIN32) && !defined(MA_DOS) && !defined(MA_ZEPHYR)    /* If it's not Win32/ DOS / Zephyr, assume POSIX. */
     #define MA_POSIX
 
     #if !defined(MA_NO_THREADING)
@@ -82560,7 +82583,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_seek_memory(void* pUserData, int offset, ma_d
     } else if (origin == MA_DR_WAV_SEEK_END) {
         newCursor = (ma_int64)pWav->memoryStream.dataSize;
     } else {
-        MA_DR_WAV_ASSERT(!"Invalid seek origin");
+        MA_DR_WAV_ASSERT(0 && "Invalid seek origin");
         return MA_FALSE;
     }
     newCursor += offset;
@@ -82613,7 +82636,7 @@ MA_PRIVATE ma_bool32 ma_dr_wav__on_seek_memory_write(void* pUserData, int offset
     } else if (origin == MA_DR_WAV_SEEK_END) {
         newCursor = (ma_int64)pWav->memoryStreamWrite.dataSize;
     } else {
-        MA_DR_WAV_ASSERT(!"Invalid seek origin");
+        MA_DR_WAV_ASSERT(0 && "Invalid seek origin");
         return MA_FALSE;
     }
     newCursor += offset;
@@ -90089,7 +90112,7 @@ static ma_bool32 ma_dr_flac__on_seek_memory(void* pUserData, int offset, ma_dr_f
     } else if (origin == MA_DR_FLAC_SEEK_END) {
         newCursor = (ma_int64)memoryStream->dataSize;
     } else {
-        MA_DR_FLAC_ASSERT(!"Invalid seek origin");
+        MA_DR_FLAC_ASSERT(0 && "Invalid seek origin");
         return MA_FALSE;
     }
     newCursor += offset;
@@ -95013,7 +95036,7 @@ static ma_bool32 ma_dr_mp3__on_seek_memory(void* pUserData, int byteOffset, ma_d
     } else if (origin == MA_DR_MP3_SEEK_END) {
         newCursor = (ma_int64)pMP3->memory.dataSize;
     } else {
-        MA_DR_MP3_ASSERT(!"Invalid seek origin");
+        MA_DR_MP3_ASSERT(0 && "Invalid seek origin");
         return MA_FALSE;
     }
     newCursor += byteOffset;
