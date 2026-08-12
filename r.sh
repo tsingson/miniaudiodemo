@@ -3,16 +3,20 @@ set -euo pipefail
 
 BOARD="nucleo_f401re"
 BUILD_DIR="build-zephyr-f401rct6"
+BUILD_DIR_DEMO="build-zephyr-f401rct6-demo"
 BAUD="115200"
 
 usage() {
   cat <<'EOF'
-Usage: ./r.sh <build|flash|monitor|all|clean>
+Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|clean>
 
   build    Configure and build Zephyr app
   flash    Flash firmware to board via west
   monitor  Open serial monitor at 115200 baud
   all      build + flash + monitor
+  build-demo  Build ST7735S demo main (src/main_st7735s.c)
+  flash-demo  Flash ST7735S demo build
+  all-demo    build-demo + flash-demo + monitor
   clean    Remove temporary Zephyr build directory
 EOF
 }
@@ -21,13 +25,18 @@ build_app() {
   west build -b "$BOARD" . --build-dir "$BUILD_DIR" --pristine
 }
 
+build_demo_app() {
+  west build -b "$BOARD" . --build-dir "$BUILD_DIR_DEMO" --pristine -- -DMINIAUDIO_ST7735S_DEMO_MAIN=ON
+}
+
 flash_app() {
+  local build_dir="${1:-$BUILD_DIR}"
   local cube_cli_macos="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOS/bin/STM32_Programmer_CLI"
   local cube_cli_macos_alt="/Applications/STMicroelectronics/STM32Cube/STM32CubeProgrammer/STM32CubeProgrammer.app/Contents/MacOs/bin/STM32_Programmer_CLI"
 
   if [[ -x "$cube_cli_macos" ]] || [[ -x "$cube_cli_macos_alt" ]] || command -v STM32_Programmer_CLI >/dev/null 2>&1; then
     echo "Flashing with stm32cubeprogrammer"
-    west flash -d "$BUILD_DIR"
+    west flash -d "$build_dir"
     return
   fi
 
@@ -35,12 +44,12 @@ flash_app() {
     echo "STM32CubeProgrammer not found, fallback to openocd runner"
 
     echo "OpenOCD attempt 1: default settings"
-    if west flash -d "$BUILD_DIR" -r openocd; then
+    if west flash -d "$build_dir" -r openocd; then
       return
     fi
 
     echo "OpenOCD attempt 2: connect-under-reset + slower SWD (1000 kHz)"
-    if west flash -d "$BUILD_DIR" -r openocd \
+    if west flash -d "$build_dir" -r openocd \
       --cmd-pre-init "adapter speed 1000" \
       --cmd-pre-init "reset_config srst_only srst_nogate connect_assert_srst" \
       --cmd-reset-halt "reset halt"; then
@@ -48,7 +57,7 @@ flash_app() {
     fi
 
     echo "OpenOCD attempt 3: connect-under-reset + very slow SWD (400 kHz)"
-    if west flash -d "$BUILD_DIR" -r openocd \
+    if west flash -d "$build_dir" -r openocd \
       --cmd-pre-init "adapter speed 400" \
       --cmd-pre-init "reset_config srst_only srst_nogate connect_assert_srst" \
       --cmd-reset-halt "reset halt"; then
@@ -73,6 +82,13 @@ clean_build() {
     rm -rf "$BUILD_DIR"
   else
     echo "No temporary build directory to remove: $BUILD_DIR"
+  fi
+
+  if [[ -d "$BUILD_DIR_DEMO" ]]; then
+    echo "Removing $BUILD_DIR_DEMO"
+    rm -rf "$BUILD_DIR_DEMO"
+  else
+    echo "No temporary build directory to remove: $BUILD_DIR_DEMO"
   fi
 }
 
@@ -122,6 +138,17 @@ main() {
     all)
       build_app
       flash_app
+      monitor_serial
+      ;;
+    build-demo)
+      build_demo_app
+      ;;
+    flash-demo)
+      flash_app "$BUILD_DIR_DEMO"
+      ;;
+    all-demo)
+      build_demo_app
+      flash_app "$BUILD_DIR_DEMO"
       monitor_serial
       ;;
     clean)

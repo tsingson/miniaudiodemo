@@ -8,6 +8,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 
 #include "zpix12_font_data.h"
@@ -22,10 +23,28 @@
 
 #define ST7735S_CTRL_NODE DT_NODELABEL(st7735s_ctrl)
 
+LOG_MODULE_REGISTER(st7735s_log_display, LOG_LEVEL_INF);
+
+static void try_enable_blk_fallback(void)
+{
+#if defined(CONFIG_BOARD_NUCLEO_F401RE)
+    const struct device *portb = DEVICE_DT_GET(DT_NODELABEL(gpiob));
+    int ret;
+
+    if (!device_is_ready(portb)) {
+        LOG_WRN("BLK fallback gpioB not ready");
+        return;
+    }
+
+    ret = gpio_pin_configure(portb, 1U, GPIO_OUTPUT_ACTIVE);
+    LOG_INF("BLK fallback PB1 configure ret=%d", ret);
+#endif
+}
+
 static const struct device *g_display;
 static struct display_capabilities g_caps;
-static uint16_t g_fg = 0xFFFF;
-static uint16_t g_bg = 0x0000;
+static uint16_t g_fg = 0x0000;
+static uint16_t g_bg = 0xFFFF;
 static uint16_t g_cursor_y;
 static uint8_t g_ready;
 static const struct gpio_dt_spec g_st7735s_blk = GPIO_DT_SPEC_GET_OR(ST7735S_CTRL_NODE, blk_gpios, {0});
@@ -152,18 +171,30 @@ int st7735s_log_display_init(void)
 #if DT_HAS_CHOSEN(zephyr_display)
     g_display = DEVICE_DT_GET(APP_DISPLAY_NODE);
 #else
+    LOG_ERR("chosen zephyr,display missing");
     return -1;
 #endif
 
     if (!device_is_ready(g_display)) {
+        LOG_ERR("display device not ready");
         return -1;
     }
 
-    if (g_st7735s_blk.port != NULL && device_is_ready(g_st7735s_blk.port)) {
-        (void)gpio_pin_configure_dt(&g_st7735s_blk, GPIO_OUTPUT_ACTIVE);
+    LOG_INF("display device ready");
+
+    if (g_st7735s_blk.port == NULL) {
+        LOG_WRN("BLK gpio not defined in DT");
+        try_enable_blk_fallback();
+    } else if (!device_is_ready(g_st7735s_blk.port)) {
+        LOG_WRN("BLK gpio port not ready: pin=%u flags=0x%x", g_st7735s_blk.pin, g_st7735s_blk.dt_flags);
+        try_enable_blk_fallback();
+    } else {
+        int blk_ret = gpio_pin_configure_dt(&g_st7735s_blk, GPIO_OUTPUT_ACTIVE);
+        LOG_INF("BLK configure ret=%d pin=%u flags=0x%x", blk_ret, g_st7735s_blk.pin, g_st7735s_blk.dt_flags);
     }
 
     display_get_capabilities(g_display, &g_caps);
+    LOG_INF("caps: %ux%u", g_caps.x_resolution, g_caps.y_resolution);
     (void)display_set_pixel_format(g_display, PIXEL_FORMAT_RGB_565);
     (void)display_blanking_off(g_display);
 
@@ -173,6 +204,10 @@ int st7735s_log_display_init(void)
     if (g_caps.x_resolution > 0U && g_caps.y_resolution > 0U) {
         (void)fill_rect(0U, 0U, g_caps.x_resolution, g_caps.y_resolution, g_bg);
     }
+
+    LOG_INF("display style: white background, black text");
+
+    LOG_INF("st7735s_log_display init done");
 
     return 0;
 }

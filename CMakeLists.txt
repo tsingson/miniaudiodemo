@@ -5,20 +5,28 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   project(miniaudiodemo_zephyr)
 
   option(MINIAUDIO_ST7735S_ZPIX_FONT "Enable full ZPix Chinese font logger (large flash usage)" OFF)
+  option(MINIAUDIO_ST7735S_DEMO_MAIN "Use minimal ST7735S hello-copilot demo entry" OFF)
+  option(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN "Use minimal STM32H7B0VBT6 hello-serial demo entry" OFF)
 
-  target_sources(app PRIVATE
-    src/play_mcu.c
-    src/play_mcu_zephyr_pcm5102.c
-    src/dspeq/play_dsp_common.c
-    src/dspeq/play_dsp_plugins.c
-    src/dspeq/play_eq_runtime.c
-    src/dspeq/eq_low_seq.c
-    src/dspeq/play_pipeline.c
-    src/dspeq/play_pipeline_eq_stages.c
-    src/dspeq/play_eq_linear.c
-    src/dspeq/play_eq_dynamic.c
-    src/dspeq/play_eq_normal.c
-    src/dspeq/play_multiband_dynamics.c)
+  if(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN)
+    target_sources(app PRIVATE src/main_stm32h7b0vbt6.c)
+  elseif(MINIAUDIO_ST7735S_DEMO_MAIN)
+    target_sources(app PRIVATE src/main_st7735s.c)
+  else()
+    target_sources(app PRIVATE
+      src/play_mcu.c
+      src/play_mcu_zephyr_pcm5102.c
+      src/dspeq/play_dsp_common.c
+      src/dspeq/play_dsp_plugins.c
+      src/dspeq/play_eq_runtime.c
+      src/dspeq/eq_low_seq.c
+      src/dspeq/play_pipeline.c
+      src/dspeq/play_pipeline_eq_stages.c
+      src/dspeq/play_eq_linear.c
+      src/dspeq/play_eq_dynamic.c
+      src/dspeq/play_eq_normal.c
+      src/dspeq/play_multiband_dynamics.c)
+  endif()
 
   if(MINIAUDIO_ST7735S_ZPIX_FONT)
     target_sources(app PRIVATE

@@ -42,26 +42,35 @@ static const struct gpio_dt_spec g_lineout_en = GPIO_DT_SPEC_GET_OR(PCM5102A_CTR
 static bool g_i2s_ready;
 static bool g_i2s_started;
 static bool g_lcd_ready;
+static bool g_lcd_init_attempted;
 static uint32_t g_heartbeat;
 
-static int pcm5102a_pin_init_one(const struct gpio_dt_spec *spec, int initial)
+static int pcm5102a_pin_init_one(const struct gpio_dt_spec *spec, int initial, const char *name)
 {
 	if ((spec == NULL) || (spec->port == NULL)) {
+		LOG_INF("PCM5102A pin %s not configured", name);
 		return 0;
 	}
 	if (!device_is_ready(spec->port)) {
+		LOG_ERR("PCM5102A pin %s gpio port not ready", name);
 		return -ENODEV;
 	}
-	return gpio_pin_configure_dt(spec, GPIO_OUTPUT_INACTIVE | (initial ? GPIO_OUTPUT_ACTIVE : 0));
+	int ret = gpio_pin_configure_dt(spec, GPIO_OUTPUT_INACTIVE | (initial ? GPIO_OUTPUT_ACTIVE : 0));
+	if (ret == 0) {
+		LOG_INF("PCM5102A pin %s configured initial=%d", name, initial);
+	} else {
+		LOG_ERR("PCM5102A pin %s configure failed: %d", name, ret);
+	}
+	return ret;
 }
 
 static void pcm5102a_control_pins_init(void)
 {
-	(void)pcm5102a_pin_init_one(&g_flt, 0);
-	(void)pcm5102a_pin_init_one(&g_demp, 0);
-	(void)pcm5102a_pin_init_one(&g_fmt, 0);
-	(void)pcm5102a_pin_init_one(&g_lineout_en, 1);
-	(void)pcm5102a_pin_init_one(&g_xsmt, 1);
+	(void)pcm5102a_pin_init_one(&g_flt, 0, "FLT");
+	(void)pcm5102a_pin_init_one(&g_demp, 0, "DEMP");
+	(void)pcm5102a_pin_init_one(&g_fmt, 0, "FMT");
+	(void)pcm5102a_pin_init_one(&g_lineout_en, 1, "LINEOUT_EN");
+	(void)pcm5102a_pin_init_one(&g_xsmt, 1, "XSMT");
 }
 
 static int play_i2s_init(void)
@@ -88,10 +97,15 @@ static int play_i2s_init(void)
 		return -ENODEV;
 	}
 
-	if (!g_lcd_ready) {
+	if (!g_lcd_ready && !g_lcd_init_attempted) {
+		g_lcd_init_attempted = true;
+		LOG_INF("Attempting ST7735S logger init");
 		if (st7735s_log_display_init() == 0) {
 			g_lcd_ready = true;
+			LOG_INF("ST7735S logger init OK");
 			st7735s_log_display_line("系统启动 / Boot");
+		} else {
+			LOG_WRN("ST7735S logger init failed");
 		}
 	}
 
@@ -109,6 +123,7 @@ static int play_i2s_init(void)
 	g_i2s_ready = true;
 	g_i2s_started = false;
 	LOG_INF("PCM5102A I2S TX initialized @ %u Hz", PLAY_SAMPLE_RATE);
+	LOG_INF("I2S block size=%u bytes, slab blocks=%u", (unsigned int)PLAY_BLOCK_SIZE, (unsigned int)PLAY_I2S_SLAB_BLOCK_COUNT);
 	if (g_lcd_ready) {
 		st7735s_log_display_line("PCM5102A就绪 48kHz");
 	}

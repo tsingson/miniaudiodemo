@@ -23,7 +23,7 @@
 		st7735s: st7735r@0 {
 			compatible = "sitronix,st7735r";
 			reg = <0>;
-			mipi-max-frequency = <8000000>;
+			mipi-max-frequency = <4000000>;
 			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
 			width = <128>;
 			height = <160>;
@@ -80,10 +80,10 @@
 };
 
 &plli2s {
-	div-m = <8>;
+	div-m = <16>;
 	mul-n = <192>;
 	div-r = <5>;
-	clocks = <&clk_hse>;
+	clocks = <&clk_hsi>;
 	status = "okay";
 };
 
@@ -107,6 +107,32 @@
 
 &sram0 {
 	reg = <0x20000000 DT_SIZE_K(64)>;
+};
+
+/* Run standalone without ST-LINK MCO clock. */
+&clk_hse {
+	status = "disabled";
+};
+
+&clk_hsi {
+	status = "okay";
+};
+
+&pll {
+	div-m = <16>;
+	mul-n = <336>;
+	div-p = <4>;
+	div-q = <7>;
+	clocks = <&clk_hsi>;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(84)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <2>;
+	apb2-prescaler = <1>;
 };
 
 &usbotg_fs {

@@ -26,9 +26,21 @@ zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lck / vin / gnd, 及 F
 west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
 ```
 
+若仅运行 ST7735S 白底黑字 `hello copilot` 演示入口（`src/main_st7735s.c`）：
+
+```sh
+west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_DEMO_MAIN=ON
+```
+
+若做 STM32H7B0VBT6 串口对比测试入口（`src/main_stm32h7b0vbt6.c`，打印 `hello copilot`）：
+
+```sh
+west build -b mini_stm32h7b0 . --build-dir build-zephyr-h7b0vbt6 --pristine -- -DMINIAUDIO_STM32H7B0VBT6_DEMO_MAIN=ON -DCONF_FILE=prj_h7b0_demo.conf
+```
+
 说明：
 - 默认使用轻量显示日志实现（不编入 `zpix12_font_data.c`），用于适配 STM32F401RCT6 的 256KB Flash。
-- 轻量模式下，ST7735S 文本绘制被关闭（避免大字库占用），不会显示中文字库日志。
+- 轻量模式下，ST7735S 仍显示英文/ASCII 日志；中文会退化为 `?`（避免大字库占用）。
 - 若你换到更大 Flash 容量芯片并需要中文字库，可开启：
 
 ```sh
@@ -44,8 +56,15 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 ./r.sh flash      # 烧录
 ./r.sh monitor    # 串口监测（115200）
 ./r.sh all        # 编译 + 烧录 + 串口监测
+./r.sh build-demo # 编译 ST7735S demo 入口（src/main_st7735s.c）
+./r.sh flash-demo # 烧录 ST7735S demo 固件
+./r.sh all-demo   # 编译 + 烧录 ST7735S demo + 串口监测
 ./r.sh clean      # 清理 ./build-zephyr-f401rct6 临时目录
 ```
+
+避免烧错固件：
+- `build/flash/all` 使用默认入口（`src/play_mcu.c`）。
+- `build-demo/flash-demo/all-demo` 使用 ST7735S 演示入口（`src/main_st7735s.c`）。
 
 ### 当前 I2S/控制脚映射
 
@@ -70,6 +89,7 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 - overlay 参考：`boards/stm32f401rct6.overlay`
 - 中文字库：`src/zpix12_font_data.c` + `src/zpix12_font_data.h`
 - 运行日志显示模块：`src/st7735s_log_display.c` + `src/st7735s_log_display.h`
+- 运行日志默认样式：白底黑字（便于在常见 ST7735S 模组上确认点亮与文本可见性）
 
 ### STM32F401 上的 ST7735S 引脚配置（当前）
 
@@ -83,6 +103,7 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 说明：
 - MISO 未使用（write-only），显示输出通过 `zephyr,display` 设备在运行时初始化。
 - 当前配置分辨率为 128x160（x-offset=2, y-offset=1）。
+- 为提高连线稳定性，`mipi-max-frequency` 当前设置为 4MHz（若后续稳定可再升回 8MHz）。
 
 ### 板载硬件澄清
 
