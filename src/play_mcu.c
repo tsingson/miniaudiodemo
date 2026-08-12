@@ -8,6 +8,19 @@
 #define MCU_BLOCK_FRAMES 128
 #define MCU_SAMPLE_RATE 48000
 
+/*
+ * Keep large DSP working buffers in static storage for MCU targets.
+ * This avoids early stack overflow in main() on small embedded stacks.
+ */
+static play_dsp_state g_dsp;
+static float g_audioBlock[MCU_BLOCK_FRAMES * MCU_CHANNELS];
+static float g_planarStorage[MAX_CHANNELS][MCU_BLOCK_FRAMES];
+static float* g_planarPtrs[MAX_CHANNELS] = {g_planarStorage[0], g_planarStorage[1]};
+static float g_gains[EQ_BANDS];
+static float g_qs[EQ_BANDS];
+static float g_prevGains[EQ_BANDS];
+static float g_prevQs[EQ_BANDS];
+
 __attribute__ ((weak)) uint32_t play_mcu_read_frames(float* interleavedOut, uint32_t maxFrames)
 {
     (void)interleavedOut;
@@ -34,43 +47,35 @@ void play_mcu_poll_eq(float* gainsOut, float* qsOut, int maxBands)
 
 int main(void)
 {
-    play_dsp_state dsp;
-    float audioBlock[MCU_BLOCK_FRAMES * MCU_CHANNELS];
-    float planarStorage[MAX_CHANNELS][MCU_BLOCK_FRAMES];
-    float* planarPtrs[MAX_CHANNELS] = {planarStorage[0], planarStorage[1]};
-    float gains[EQ_BANDS];
-    float qs[EQ_BANDS];
-    float prevGains[EQ_BANDS];
-    float prevQs[EQ_BANDS];
     int eqInitialized = 0;
 
-    if (play_dsp_init(&dsp, MCU_SAMPLE_RATE, MCU_CHANNELS) != 0)
+    if (play_dsp_init(&g_dsp, MCU_SAMPLE_RATE, MCU_CHANNELS) != 0)
     {
         return -1;
     }
 
-    memset(gains, 0, sizeof(gains));
-    memset(qs, 0, sizeof(qs));
-    memset(prevGains, 0, sizeof(prevGains));
-    memset(prevQs, 0, sizeof(prevQs));
+    memset(g_gains, 0, sizeof(g_gains));
+    memset(g_qs, 0, sizeof(g_qs));
+    memset(g_prevGains, 0, sizeof(g_prevGains));
+    memset(g_prevQs, 0, sizeof(g_prevQs));
 
     for (;;)
     {
-        uint32_t frames = play_mcu_read_frames(audioBlock, MCU_BLOCK_FRAMES);
+        uint32_t frames = play_mcu_read_frames(g_audioBlock, MCU_BLOCK_FRAMES);
 
         if (frames > MCU_BLOCK_FRAMES)
         {
             frames = MCU_BLOCK_FRAMES;
         }
 
-        play_mcu_poll_eq(gains, qs, EQ_BANDS);
+        play_mcu_poll_eq(g_gains, g_qs, EQ_BANDS);
 
         {
             int changed = !eqInitialized;
 
             for (int i = 0; i < EQ_BANDS && !changed; ++i)
             {
-                if (fabsf(gains[i] - prevGains[i]) > 1e-6f || fabsf(qs[i] - prevQs[i]) > 1e-6f)
+                if (fabsf(g_gains[i] - g_prevGains[i]) > 1e-6f || fabsf(g_qs[i] - g_prevQs[i]) > 1e-6f)
                 {
                     changed = 1;
                 }
@@ -78,9 +83,9 @@ int main(void)
 
             if (changed)
             {
-                play_dsp_set_eq_params(&dsp, gains, EQ_BANDS, qs, EQ_BANDS);
-                memcpy(prevGains, gains, sizeof(prevGains));
-                memcpy(prevQs, qs, sizeof(prevQs));
+                play_dsp_set_eq_params(&g_dsp, g_gains, EQ_BANDS, g_qs, EQ_BANDS);
+                memcpy(g_prevGains, g_gains, sizeof(g_prevGains));
+                memcpy(g_prevQs, g_qs, sizeof(g_prevQs));
                 eqInitialized = 1;
             }
         }
@@ -91,21 +96,21 @@ int main(void)
             {
                 for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
                 {
-                    planarStorage[ch][i] = audioBlock[i * MCU_CHANNELS + ch];
+                    g_planarStorage[ch][i] = g_audioBlock[i * MCU_CHANNELS + ch];
                 }
             }
 
-            play_dsp_process_planar(&dsp, planarPtrs, frames, MCU_CHANNELS);
+            play_dsp_process_planar(&g_dsp, g_planarPtrs, frames, MCU_CHANNELS);
 
             for (uint32_t i = 0; i < frames; ++i)
             {
                 for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
                 {
-                    audioBlock[i * MCU_CHANNELS + ch] = planarStorage[ch][i];
+                    g_audioBlock[i * MCU_CHANNELS + ch] = g_planarStorage[ch][i];
                 }
             }
 
-            play_mcu_write_frames(audioBlock, frames);
+            play_mcu_write_frames(g_audioBlock, frames);
         }
     }
 }

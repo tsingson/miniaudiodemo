@@ -1,0 +1,2 @@
+/* Auto-picked overlay for west build -b nucleo_f401re */
+#include "stm32f401rct6.overlay"

@@ -250,12 +250,12 @@ void play_eq_linear_ctx_rebuild(play_eq_linear_ctx* ctx,
         double scale;
         for (int i = 0; i < taps; ++i)
         {
-            dc += ctx->coeff[i];
+            dc += (double)ctx->coeff[i];
         }
         scale = (fabs(dc) > 1e-9) ? ((double)a0Target / dc) : 1.0;
         for (int i = 0; i < taps; ++i)
         {
-            ctx->coeff[i] = (float)(ctx->coeff[i] * scale);
+            ctx->coeff[i] = (float)((double)ctx->coeff[i] * scale);
         }
     }
 

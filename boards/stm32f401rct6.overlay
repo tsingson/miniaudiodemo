@@ -1,0 +1,101 @@
+/*
+ * STM32F401RCT6 + PCM5102A overlay (for Zephyr 4.4.2)
+ * Build with: west build -b nucleo_f401re . -- -DDTC_OVERLAY_FILE=boards/stm32f401rct6.overlay
+ */
+
+/ {
+	chosen {
+		miniaudio,i2s-tx = &i2s2;
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+		zephyr,display = &st7735s;
+	};
+
+	mipi_dbi_st7735s: mipi_dbi_st7735s {
+		compatible = "zephyr,mipi-dbi-spi";
+		spi-dev = <&spi1>;
+		dc-gpios = <&gpioa 2 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpioa 11 GPIO_ACTIVE_LOW>;
+		write-only;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		st7735s: st7735r@0 {
+			compatible = "sitronix,st7735r";
+			reg = <0>;
+			mipi-max-frequency = <8000000>;
+			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+			width = <128>;
+			height = <160>;
+			x-offset = <2>;
+			y-offset = <1>;
+			madctl = <0x00>;
+			colmod = <0x05>;
+			vmctr1 = <0x1a>;
+			invctr = <0x03>;
+			pwctr1 = [28 08 04];
+			pwctr2 = [c0];
+			pwctr3 = [0d 00];
+			pwctr4 = [8d 2a];
+			pwctr5 = [8d ee];
+			frmctr1 = [05 3c 3c];
+			frmctr2 = [05 3c 3c];
+			frmctr3 = [05 3c 3c 05 3c 3c];
+			caset = [00 02 00 81];
+			raset = [00 01 00 a0];
+			gamctrp1 = [04 22 07 0a 2e 30 25 2a 28 26 2e 3a 00 01 03 13];
+			gamctrn1 = [04 16 06 0d 2d 26 23 27 27 25 2d 3b 00 01 04 13];
+		};
+	};
+
+	st7735s_ctrl: st7735s-ctrl {
+		blk-gpios = <&gpioa 12 GPIO_ACTIVE_HIGH>;
+	};
+
+	pcm5102a_ctrl: pcm5102a-ctrl {
+		flt-gpios = <&gpioa 0 GPIO_ACTIVE_HIGH>;
+		demp-gpios = <&gpioa 1 GPIO_ACTIVE_HIGH>;
+		xsmt-gpios = <&gpioa 4 GPIO_ACTIVE_HIGH>;
+		fmt-gpios = <&gpioa 8 GPIO_ACTIVE_HIGH>;
+		lineout-en-gpios = <&gpiob 0 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&spi1 {
+	pinctrl-0 = <&spi1_sck_pa5 &spi1_mosi_pa7>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpioa 3 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&dma1 {
+	status = "okay";
+};
+
+&plli2s {
+	div-m = <8>;
+	mul-n = <192>;
+	div-r = <5>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+&i2s2 {
+	pinctrl-0 = <&i2s2_ck_pb13 &i2s2_sd_pb15 &i2s2_ws_pb12>;
+	pinctrl-names = "default";
+	clocks = <&rcc STM32_CLOCK(APB1, 14)>,
+			 <&rcc STM32_SRC_PLLI2S_R I2S_SEL(0)>;
+	status = "okay";
+};
+
+/* SPI2 and I2S2 share peripheral registers on STM32F401 */
+&spi2 {
+	status = "disabled";
+};

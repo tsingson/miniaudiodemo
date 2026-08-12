@@ -6,14 +6,22 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef __ZEPHYR__
+#include <zephyr/kernel.h>
+#endif
+
 static double now_ms(void)
 {
+#ifdef __ZEPHYR__
+    return (double)k_uptime_get();
+#else
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
     {
         return 0.0;
     }
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+#endif
 }
 
 static float clampf(float v, float lo, float hi)

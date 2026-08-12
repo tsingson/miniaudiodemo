@@ -431,8 +431,8 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
                 }
                 else
                 {
-                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[
-                            band][ch]
+                      out = stage->b0[band] * (double)in + stage->b1[band] * stage->x1[band][ch] +
+                          stage->b2[band] * stage->x2[band][ch]
                         - stage->a1[band] * stage->y1[band][ch] - stage->a2[band] * stage->y2[band][ch];
 
                     stage->x2[band][ch] = stage->x1[band][ch];
@@ -456,7 +456,7 @@ int play_dynamic_eq_stage_process(void* ctx, play_frame_block* block)
                                                                     stage->gainsDB[band] > 0.0f);
                     if (reductionDb > 0.0f)
                     {
-                        out *= db_to_linear(-reductionDb);
+                        out *= (double)db_to_linear(-reductionDb);
                     }
                     stage->dynamicReductionDB[band] = stage->dynamicReductionDB[band] * 0.88f + reductionDb * 0.12f;
                 }
@@ -517,8 +517,8 @@ int play_normal_eq_stage_process(void* ctx, play_frame_block* block)
                 }
                 else
                 {
-                    out = stage->b0[band] * in + stage->b1[band] * stage->x1[band][ch] + stage->b2[band] * stage->x2[
-                            band][ch]
+                      out = stage->b0[band] * (double)in + stage->b1[band] * stage->x1[band][ch] +
+                          stage->b2[band] * stage->x2[band][ch]
                         - stage->a1[band] * stage->y1[band][ch] - stage->a2[band] * stage->y2[band][ch];
 
                     stage->x2[band][ch] = stage->x1[band][ch];

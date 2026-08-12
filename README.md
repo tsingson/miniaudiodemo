@@ -10,13 +10,116 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 
 串口连接 pa9 (RX) / pa10 (TX)
 
+Zephyr 控制台日志已配置到 USART1 (PA9/PA10, 115200)
+
 
 
 ## 音频 codec
 
-zephyr 4.4.1 控制 PCM5102A, 引脚是 sck / bck / din / lck / vin / gnd, 及 FLT / demp / xsmt / FMT / a3v3 / agnd / rout / agnd / lrout 引脚, 另有 line out 接口
+zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lck / vin / gnd, 及 FLT / demp / xsmt / FMT / a3v3 / agnd / rout / agnd / lrout 引脚, 另有 line out 接口。
 
+当前工程已配置为使用 `src/play_mcu.c` 作为入口，并通过 `src/play_mcu_zephyr_pcm5102.c` 提供 Zephyr I2S/GPIO 适配。
+
+### Zephyr 编译（已验证可通过）
+
+```sh
+west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
 ```
+
+overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f401rct6.overlay`）
+
+### 一键脚本
+
+```sh
+./r.sh build      # 编译
+./r.sh flash      # 烧录
+./r.sh monitor    # 串口监测（115200）
+./r.sh all        # 编译 + 烧录 + 串口监测
+./r.sh clean      # 清理 ./build-zephyr-f401rct6 临时目录
 ```
+
+### 当前 I2S/控制脚映射
+
+- I2S2_CK(PCM5102A BCK): PB13
+- I2S2_SD(PCM5102A DIN): PB15
+- I2S2_WS(PCM5102A LCK): PB12
+- FLT: PA0
+- DEMP: PA1
+- XSMT: PA4
+- FMT: PA8
+- LINEOUT_EN: PB0
+
+说明：
+- 你的板子未给出 PC6，可不接 PCM5102A 的 SCK(MCLK)，当前按 3 线 I2S 运行（BCK/LCK/DIN）。
+- VIN/GND/A3V3/AGND/ROUT/LROUT/Line Out 为模拟/电源连线，不在 DTS 中以数字外设配置。
+
+## ST7735S 显示移植
+
+已从 `lcddemo` 迁移以下内容到当前工程（未引入任何图片 C 数组）：
+
+- 显示驱动接入：使用 Zephyr 原生 `sitronix,st7735r`(兼容 ST7735S) + `zephyr,mipi-dbi-spi`
+- overlay 参考：`boards/stm32f401rct6.overlay`
+- 中文字库：`src/zpix12_font_data.c` + `src/zpix12_font_data.h`
+- 运行日志显示模块：`src/st7735s_log_display.c` + `src/st7735s_log_display.h`
+
+### STM32F401 上的 ST7735S 引脚配置（当前）
+
+- SCL (SPI1_SCK): PA5
+- SDA (SPI1_MOSI): PA7
+- RES (ST7735S_RST): PA11
+- DC (ST7735S_DC): PA2
+- CS (SPI1_CS): PA3
+- BLK (背光): PA12
+
+说明：
+- MISO 未使用（write-only），显示输出通过 `zephyr,display` 设备在运行时初始化。
+- 当前配置分辨率为 128x160（x-offset=2, y-offset=1）。
+
+### 板载硬件澄清
+
+- 按键：BOOT0 / NRST / KEY
+- 指示灯：PWR 灯 + 1 个 LED 灯
+- 调试下载接口（ST-Link v2）：SW / 3V3 / DIO / SCK / GND
+- 说明：此前“C13 接 LED”信息已作废，C13 更可能是板上电容位号，不作为 GPIO 引脚使用。
+
+## STM32F401RCT6 引脚配置总表
+
+### 串口日志（USART1）
+
+- PA9: USART1_TX（接 USB-UART RX）
+- PA10: USART1_RX（接 USB-UART TX）
+- 波特率：115200
+
+### 音频输出（PCM5102A, I2S2 3线）
+
+- PB13: I2S2_CK -> PCM5102A BCK
+- PB12: I2S2_WS -> PCM5102A LCK
+- PB15: I2S2_SD -> PCM5102A DIN
+- PA0: FLT 控制
+- PA1: DEMP 控制
+- PA4: XSMT 控制
+- PA8: FMT 控制
+- PB0: LINEOUT_EN 控制
+
+### 显示屏（ST7735S, SPI1）
+
+- PA5: SCL (SPI1_SCK)
+- PA7: SDA (SPI1_MOSI)
+- PA11: RES (ST7735S_RST)
+- PA2: DC (ST7735S_DC)
+- PA3: CS (SPI1_CS)
+- PA12: BLK (背光控制，高电平点亮)
+
+### 下载调试（ST-Link v2, SWD）
+
+- SWDIO: DIO
+- SWCLK: SCK
+- GND: GND
+- VTref: 3V3
+
+### 板载按键/电源
+
+- 按键：BOOT0 / NRST / KEY
+- 指示：PWR 灯 + 1 个用户 LED
 
 

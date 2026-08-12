@@ -1,4 +1,28 @@
 cmake_minimum_required(VERSION 3.20.0)
+
+if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
+  find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+  project(miniaudiodemo_zephyr)
+
+  target_sources(app PRIVATE
+    src/play_mcu.c
+    src/play_mcu_zephyr_pcm5102.c
+    src/st7735s_log_display.c
+    src/zpix12_font_data.c
+    src/dspeq/play_dsp_common.c
+    src/dspeq/play_dsp_plugins.c
+    src/dspeq/play_eq_runtime.c
+    src/dspeq/eq_low_seq.c
+    src/dspeq/play_pipeline.c
+    src/dspeq/play_pipeline_eq_stages.c
+    src/dspeq/play_eq_linear.c
+    src/dspeq/play_eq_dynamic.c
+    src/dspeq/play_eq_normal.c
+    src/dspeq/play_multiband_dynamics.c)
+
+  target_include_directories(app PRIVATE src src/dspeq)
+  target_compile_options(app PRIVATE -Wall -Wno-unused-parameter)
+else()
 project(miniaudiodemo C)
 
 set(CMAKE_C_STANDARD 11)
@@ -291,3 +315,4 @@ add_custom_target(run_eq_unit_tests
   COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_chain
   COMMAND ${CMAKE_SOURCE_DIR}/test_channel_plan
   DEPENDS verify_eq_low_seq test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_channel_plan)
+endif()
