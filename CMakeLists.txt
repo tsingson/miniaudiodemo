@@ -4,11 +4,11 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
   project(miniaudiodemo_zephyr)
 
+  option(MINIAUDIO_ST7735S_ZPIX_FONT "Enable full ZPix Chinese font logger (large flash usage)" OFF)
+
   target_sources(app PRIVATE
     src/play_mcu.c
     src/play_mcu_zephyr_pcm5102.c
-    src/st7735s_log_display.c
-    src/zpix12_font_data.c
     src/dspeq/play_dsp_common.c
     src/dspeq/play_dsp_plugins.c
     src/dspeq/play_eq_runtime.c
@@ -19,6 +19,15 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
     src/dspeq/play_eq_dynamic.c
     src/dspeq/play_eq_normal.c
     src/dspeq/play_multiband_dynamics.c)
+
+  if(MINIAUDIO_ST7735S_ZPIX_FONT)
+    target_sources(app PRIVATE
+      src/st7735s_log_display.c
+      src/zpix12_font_data.c)
+    target_compile_definitions(app PRIVATE MINIAUDIO_ST7735S_ZPIX_FONT=1)
+  else()
+    target_sources(app PRIVATE src/st7735s_log_display_stub.c)
+  endif()
 
   target_include_directories(app PRIVATE src src/dspeq)
   target_compile_options(app PRIVATE -Wall -Wno-unused-parameter)

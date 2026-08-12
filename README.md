@@ -8,9 +8,9 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 上电中, 按 boot0 / 复位锓, 松开复位键, 0.5秒松开 boot0 
 断电后, 按 boot0 上电 后 0.5秒松开 boot0
 
-串口连接 pa9 (RX) / pa10 (TX)
+默认日志口已切换为 USB CDC ACM（PA11/PA12），macOS 侧设备名通常为 `/dev/cu.usbmodem*`。
 
-Zephyr 控制台日志已配置到 USART1 (PA9/PA10, 115200)
+USART1 (PA9/PA10, 115200) 仍可保留作硬件后备串口。
 
 
 
@@ -24,6 +24,15 @@ zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lck / vin / gnd, 及 F
 
 ```sh
 west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
+```
+
+说明：
+- 默认使用轻量显示日志实现（不编入 `zpix12_font_data.c`），用于适配 STM32F401RCT6 的 256KB Flash。
+- 轻量模式下，ST7735S 文本绘制被关闭（避免大字库占用），不会显示中文字库日志。
+- 若你换到更大 Flash 容量芯片并需要中文字库，可开启：
+
+```sh
+west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_ZPIX_FONT=ON
 ```
 
 overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f401rct6.overlay`）
@@ -66,10 +75,10 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 
 - SCL (SPI1_SCK): PA5
 - SDA (SPI1_MOSI): PA7
-- RES (ST7735S_RST): PA11
+- RES (ST7735S_RST): PA6
 - DC (ST7735S_DC): PA2
 - CS (SPI1_CS): PA3
-- BLK (背光): PA12
+- BLK (背光): PB1
 
 说明：
 - MISO 未使用（write-only），显示输出通过 `zephyr,display` 设备在运行时初始化。
@@ -84,7 +93,13 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 
 ## STM32F401RCT6 引脚配置总表
 
-### 串口日志（USART1）
+### 控制台日志（USB CDC，默认）
+
+- PA11: USB_DM (D-)
+- PA12: USB_DP (D+)
+- macOS 设备：`/dev/cu.usbmodem*`
+
+### 后备串口（USART1）
 
 - PA9: USART1_TX（接 USB-UART RX）
 - PA10: USART1_RX（接 USB-UART TX）
@@ -105,10 +120,17 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 
 - PA5: SCL (SPI1_SCK)
 - PA7: SDA (SPI1_MOSI)
-- PA11: RES (ST7735S_RST)
+- PA6: RES (ST7735S_RST)
 - PA2: DC (ST7735S_DC)
 - PA3: CS (SPI1_CS)
-- PA12: BLK (背光控制，高电平点亮)
+- PB1: BLK (背光控制，高电平点亮)
+
+### USB 设备（用于 macOS 识别）
+
+- PA11: USB_DM (D-)
+- PA12: USB_DP (D+)
+- 已启用 Zephyr USB CDC ACM，连接后 macOS 会出现 `/dev/cu.usbmodem*` 设备。
+- 注意：PA11/PA12 不能再用于 ST7735S 的 RES/BLK。
 
 ### 下载调试（ST-Link v2, SWD）
 
