@@ -55,7 +55,7 @@ static int configure_i2s(void)
         .frame_clk_freq = PCM_SAMPLE_RATE,
         .mem_slab = &pcm_tx_slab,
         .block_size = PCM_BLOCK_SIZE,
-        .timeout = 10,
+        .timeout = 1000,
     };
 
     return i2s_configure(g_i2s_dev, I2S_DIR_TX, &config);
@@ -111,7 +111,7 @@ static void write_float_unlocked(const float *interleaved, uint32_t frames)
     if (frames > PCM_BLOCK_FRAMES) {
         frames = PCM_BLOCK_FRAMES;
     }
-    ret = k_mem_slab_alloc(&pcm_tx_slab, (void **)&tx_block, K_NO_WAIT);
+    ret = k_mem_slab_alloc(&pcm_tx_slab, (void **)&tx_block, K_FOREVER);
     if (ret != 0) {
         g_write_errors++;
         LOG_WRN("PCM5102A TX slab allocation failed: %d", ret);

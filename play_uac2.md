@@ -27,6 +27,8 @@ The reusable writer extraction is implemented:
 
 The hardware acoustic gate is still pending; compilation alone does not prove the signal is audible.
 
+On STM32F401, the hardware baseline test intentionally enables only the WAV source and PCM5102A output stage. The full DSP/plugin chain is available but must be enabled with a measured block-time budget; at 128 frames it can overrun the 2.67 ms real-time interval and cause I2S underruns.
+
 The STM32 audio path now follows the same shape as the macOS path:
 
 `source -> play_audio_pipeline -> DSP/plugin stages -> output stages`

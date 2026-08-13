@@ -89,7 +89,6 @@ int main(void)
     static play_audio_pipeline pipeline;
     struct wav_view wav;
     uint32_t position = 0U;
-    int64_t next_status_ms;
     int ret;
 
     (void)st7735s_log_display_init();
@@ -99,7 +98,6 @@ int main(void)
     }
     ret = pcm5102a_audio_init();
     if (ret == 0) ret = play_audio_pipeline_init(&pipeline, TEST_RATE, TEST_CHANNELS);
-    if (ret == 0) ret = play_audio_pipeline_add_dsp(&pipeline);
     if (ret == 0) ret = play_audio_pipeline_add_output(&pipeline, "pcm5102a", NULL,
                                                        pcm5102a_audio_output_stage);
     if (ret != 0) {
@@ -111,18 +109,8 @@ int main(void)
     LOG_INF("WAV source: 440 Hz PCM16 stereo 48 kHz");
     st7735s_log_display_line("WAV 440Hz 48k");
     st7735s_log_display_line("I2S running");
-    next_status_ms = k_uptime_get() + 1000;
     while (1) {
         fill_block(block, &wav, &position);
         (void)play_audio_pipeline_process(&pipeline, block, TEST_FRAMES);
-        if (k_uptime_get() >= next_status_ms) {
-            uint32_t blocks;
-            uint32_t errors;
-            char status[32];
-            pcm5102a_audio_get_stats(&blocks, &errors);
-            (void)snprintf(status, sizeof(status), "I2S %u/%u", blocks, errors);
-            st7735s_log_display_line(status);
-            next_status_ms += 1000;
-        }
     }
 }
