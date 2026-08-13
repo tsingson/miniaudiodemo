@@ -117,10 +117,15 @@ static void eq_pipeline_copy_to_state(play_dsp_state* state,
 
 void play_eq_runtime_prepare(play_eq_runtime* runtime, play_dsp_state* state, uint32_t channels)
 {
+    int activeBandCount;
+
     if (runtime == NULL || state == NULL)
     {
         return;
     }
+
+    activeBandCount = state->activeEqBands;
+    if (activeBandCount <= 0 || activeBandCount > EQ_BANDS) activeBandCount = EQ_BANDS;
 
     play_eq_stage_profile_init(&runtime->profile,
                                state->sampleRate,
@@ -129,7 +134,7 @@ void play_eq_runtime_prepare(play_eq_runtime* runtime, play_dsp_state* state, ui
                                state->gainsDB,
                                state->qValues,
                                state->bandModes,
-                               EQ_BANDS);
+                               activeBandCount);
 
     play_linear_eq_stage_init(&runtime->linearStage,
                               &runtime->profile,
@@ -143,7 +148,7 @@ void play_eq_runtime_prepare(play_eq_runtime* runtime, play_dsp_state* state, ui
                                state->gainsDB,
                                state->qValues,
                                state->bandModes,
-                               EQ_BANDS,
+                               activeBandCount,
                                (uint8_t)PLAY_EQ_MODE_LINEAR,
                                (uint8_t)PLAY_EQ_MODE_DYNAMIC);
     play_normal_eq_stage_init(&runtime->normalStage,
@@ -153,11 +158,21 @@ void play_eq_runtime_prepare(play_eq_runtime* runtime, play_dsp_state* state, ui
                               state->gainsDB,
                               state->qValues,
                               state->bandModes,
-                              EQ_BANDS,
+                               activeBandCount,
                               (uint8_t)PLAY_EQ_MODE_LINEAR,
                               (uint8_t)PLAY_EQ_MODE_NORMAL);
 
     eq_pipeline_copy_from_state(state, &runtime->linearStage, &runtime->dynamicStage, &runtime->normalStage);
+
+    /* The stage list is static for the lifetime of this runtime. Rebuild the
+     * coefficients above, but do not rebuild the pipeline container per block. */
+    play_pipeline_init(&runtime->pipeline);
+    (void)play_pipeline_add_stage(&runtime->pipeline, "linear-eq", 1,
+                                  &runtime->linearStage, play_linear_eq_stage_process);
+    (void)play_pipeline_add_stage(&runtime->pipeline, "dynamic-eq", 1,
+                                  &runtime->dynamicStage, play_dynamic_eq_stage_process);
+    (void)play_pipeline_add_stage(&runtime->pipeline, "normal-eq", 1,
+                                  &runtime->normalStage, play_normal_eq_stage_process);
 }
 
 void play_eq_runtime_process(play_eq_runtime* runtime, play_frame_block* block, int bypassEnabled, uint8_t channelMask)
@@ -172,22 +187,9 @@ void play_eq_runtime_process(play_eq_runtime* runtime, play_frame_block* block, 
     prevMask = block->channelMask;
     block->channelMask = channelMask;
 
-    play_pipeline_init(&runtime->pipeline);
-    (void)play_pipeline_add_stage(&runtime->pipeline,
-                                  "linear-eq",
-                                  bypassEnabled ? 0 : 1,
-                                  &runtime->linearStage,
-                                  play_linear_eq_stage_process);
-    (void)play_pipeline_add_stage(&runtime->pipeline,
-                                  "dynamic-eq",
-                                  bypassEnabled ? 0 : 1,
-                                  &runtime->dynamicStage,
-                                  play_dynamic_eq_stage_process);
-    (void)play_pipeline_add_stage(&runtime->pipeline,
-                                  "normal-eq",
-                                  bypassEnabled ? 0 : 1,
-                                  &runtime->normalStage,
-                                  play_normal_eq_stage_process);
+    (void)play_pipeline_set_stage_enabled(&runtime->pipeline, 0, bypassEnabled ? 0 : 1);
+    (void)play_pipeline_set_stage_enabled(&runtime->pipeline, 1, bypassEnabled ? 0 : 1);
+    (void)play_pipeline_set_stage_enabled(&runtime->pipeline, 2, bypassEnabled ? 0 : 1);
     (void)play_pipeline_run(&runtime->pipeline, block);
 
     block->channelMask = prevMask;

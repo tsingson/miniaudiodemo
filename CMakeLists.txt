@@ -9,15 +9,61 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   option(MINIAUDIO_PCM5102_ST7735S_MAIN "Use PCM5102A + ST7735S audio demo entry" OFF)
   option(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN "Use UAC2 receiver + PCM5102A + ST7735S entry" OFF)
   option(MINIAUDIO_PCM5102A_TEST_MAIN "Use deterministic PCM5102A writer test entry" OFF)
+  option(MINIAUDIO_UAC2_NULL_SINK "Build UAC2 protocol test without PCM output" OFF)
+  option(MINIAUDIO_TINYUSB_UAC2_MAIN "Use standalone TinyUSB UAC2 receiver" OFF)
   option(MINIAUDIO_I2S_MAIN "Use direct PCM5102 I2S WAV playback entry" OFF)
   option(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN "Use minimal STM32H7B0VBT6 hello-serial demo entry" OFF)
 
-  if(MINIAUDIO_PCM5102A_TEST_MAIN)
+  if(MINIAUDIO_TINYUSB_UAC2_MAIN)
+    target_sources(app PRIVATE
+      src/main_pcm5102_st7735s_uac2.c
+      src/tinyusb_uac2_device.c
+      src/tinyusb_dwc2_zephyr.c
+      src/pcm5102a_audio.c
+      src/play_audio_pipeline.c
+      src/play_pipeline_fanout.c
+      src/play_pipeline_mix.c
+      src/dspeq/play_dsp_common.c
+      src/dspeq/play_dsp_plugins.c
+      src/dspeq/play_eq_runtime.c
+      src/dspeq/eq_low_seq.c
+      src/dspeq/play_pipeline.c
+      src/dspeq/play_pipeline_eq_stages.c
+      src/dspeq/play_eq_linear.c
+      src/dspeq/play_eq_dynamic.c
+      src/dspeq/play_eq_normal.c
+      src/dspeq/play_multiband_dynamics.c
+      src/audio_3_wav_data.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/tusb.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/common/tusb_fifo.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/device/usbd.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/class/audio/audio_device.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
+      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2/dwc2_common.c)
+    target_compile_definitions(app PRIVATE
+      CFG_TUSB_MCU=OPT_MCU_STM32F4
+      CFG_TUSB_OS=OPT_OS_ZEPHYR
+      CFG_TUSB_RHPORT0_MODE=0x0201
+      CFG_TUSB_CONFIG_FILE=\"miniaudio_tusb_config.h\"
+      MINIAUDIO_TINYUSB_UAC2=1)
+    target_include_directories(app BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_include_directories(app PRIVATE
+      /Users/qinshen/go/zephyrproject/tinyusb/src
+      /Users/qinshen/go/zephyrproject/tinyusb/src/common
+      /Users/qinshen/go/zephyrproject/tinyusb/src/device
+      /Users/qinshen/go/zephyrproject/tinyusb/src/class/audio
+      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2
+      /Users/qinshen/go/zephyrproject/tinyusb/examples/device/cdc_uac2/src)
+  elseif(MINIAUDIO_PCM5102A_TEST_MAIN)
     target_sources(app PRIVATE
       src/main_pcm5102a_test.c
       src/audio_4_wav_data.c
+      src/cmsis_eq_stage.c
+      /Users/qinshen/go/zephyrproject/CMSIS-DSP/Source/FilteringFunctions/FilteringFunctions.c
       src/pcm5102a_audio.c
       src/play_audio_pipeline.c
+      src/play_pipeline_fanout.c
+      src/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -36,6 +82,8 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/play_mcu_zephyr_pcm5102.c
       src/pcm5102a_audio.c
       src/play_audio_pipeline.c
+      src/play_pipeline_fanout.c
+      src/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -48,12 +96,20 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_multiband_dynamics.c
       src/audio_3_wav_data.c
       src/usb_uac2_device.c)
+    if(MINIAUDIO_UAC2_NULL_SINK)
+      target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_NULL_SINK=1)
+    endif()
+    if(DTC_OVERLAY_FILE MATCHES "uac2_implicit")
+      target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_IMPLICIT=1)
+    endif()
   elseif(MINIAUDIO_PCM5102_ST7735S_MAIN)
     target_sources(app PRIVATE
       src/main_pcm5102_st7735s.c
       src/audio_3_wav_data.c
       src/pcm5102a_audio.c
       src/play_audio_pipeline.c
+      src/play_pipeline_fanout.c
+      src/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -75,6 +131,8 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/play_mcu_zephyr_pcm5102.c
       src/pcm5102a_audio.c
       src/play_audio_pipeline.c
+      src/play_pipeline_fanout.c
+      src/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -87,7 +145,9 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_multiband_dynamics.c)
   endif()
 
-  if(MINIAUDIO_ST7735S_ZPIX_FONT)
+  if(MINIAUDIO_TINYUSB_UAC2_MAIN)
+    target_sources(app PRIVATE src/st7735s_log_display_noop.c)
+  elseif(MINIAUDIO_ST7735S_ZPIX_FONT)
     target_sources(app PRIVATE
       src/st7735s_log_display.c
       src/zpix12_font_data.c)
@@ -97,6 +157,15 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   endif()
 
   target_include_directories(app PRIVATE src src/dspeq)
+  if(MINIAUDIO_PCM5102A_TEST_MAIN)
+    target_include_directories(app PRIVATE
+      /Users/qinshen/go/zephyrproject/CMSIS-DSP/Include
+      /Users/qinshen/go/zephyrproject/CMSIS-DSP/PrivateInclude)
+    target_compile_options(app PRIVATE -Ofast -ffast-math)
+  endif()
+  if(DEFINED MINIAUDIO_UAC2_PID)
+    target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_PID=${MINIAUDIO_UAC2_PID})
+  endif()
   target_compile_options(app PRIVATE -Wall -Wno-unused-parameter)
 else()
 project(miniaudiodemo C)
@@ -215,6 +284,14 @@ add_executable(test_pipeline_cross_platform
                src/dspeq/play_eq_dynamic.c
                src/dspeq/play_eq_normal.c
                src/dspeq/play_multiband_dynamics.c)
+add_executable(test_pipeline_fanout
+               tests/test_pipeline_fanout.c
+               src/play_pipeline_fanout.c
+               src/dspeq/play_pipeline.c)
+add_executable(test_pipeline_mix
+               tests/test_pipeline_mix.c
+               src/play_pipeline_mix.c
+               src/dspeq/play_pipeline.c)
 add_executable(test_channel_plan
                tests/test_channel_plan.c
                src/play_channel_plan.c)
@@ -232,6 +309,8 @@ target_include_directories(test_eq_normal PRIVATE src src/dspeq)
 target_include_directories(test_eq_linear PRIVATE src src/dspeq)
 target_include_directories(test_pipeline_chain PRIVATE src src/dspeq)
 target_include_directories(test_pipeline_cross_platform PRIVATE src src/dspeq)
+target_include_directories(test_pipeline_fanout PRIVATE src src/dspeq)
+target_include_directories(test_pipeline_mix PRIVATE src src/dspeq)
 target_include_directories(test_channel_plan PRIVATE src src/dspeq)
 
 if(PLAY_USE_CMSIS_DSP)
@@ -291,6 +370,8 @@ if(APPLE)
   target_link_libraries(test_eq_linear PRIVATE m)
   target_link_libraries(test_pipeline_chain PRIVATE m)
   target_link_libraries(test_pipeline_cross_platform PRIVATE m)
+  target_link_libraries(test_pipeline_fanout PRIVATE m)
+  target_link_libraries(test_pipeline_mix PRIVATE m)
   target_link_libraries(test_channel_plan PRIVATE m)
 elseif(UNIX)
   target_link_libraries(verify_eq_gain PRIVATE pthread m dl)
@@ -302,6 +383,8 @@ elseif(UNIX)
   target_link_libraries(test_eq_linear PRIVATE pthread m dl)
   target_link_libraries(test_pipeline_chain PRIVATE pthread m dl)
   target_link_libraries(test_pipeline_cross_platform PRIVATE pthread m dl)
+  target_link_libraries(test_pipeline_fanout PRIVATE pthread m dl)
+  target_link_libraries(test_pipeline_mix PRIVATE pthread m dl)
   target_link_libraries(test_channel_plan PRIVATE pthread m dl)
 endif()
 
@@ -327,6 +410,8 @@ target_compile_options(test_eq_normal PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_eq_linear PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_pipeline_chain PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_pipeline_cross_platform PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_pipeline_fanout PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(test_pipeline_mix PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(test_channel_plan PRIVATE -Wall -Wno-unused-parameter)
 
 # 编译后把可执行文件复制到项目根目录，方便直接运行（test.wav 也在根目录）
@@ -423,6 +508,20 @@ add_custom_command(
   COMMENT "Copied test_pipeline_cross_platform to project root")
 
 add_custom_command(
+  TARGET test_pipeline_fanout
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_pipeline_fanout>
+    ${CMAKE_SOURCE_DIR}/test_pipeline_fanout
+  COMMENT "Copied test_pipeline_fanout to project root")
+
+add_custom_command(
+  TARGET test_pipeline_mix
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_pipeline_mix>
+    ${CMAKE_SOURCE_DIR}/test_pipeline_mix
+  COMMENT "Copied test_pipeline_mix to project root")
+
+add_custom_command(
   TARGET test_channel_plan
   POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:test_channel_plan>
@@ -436,6 +535,8 @@ add_custom_target(run_eq_unit_tests
   COMMAND ${CMAKE_SOURCE_DIR}/test_eq_linear
   COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_chain
   COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_cross_platform
+  COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_fanout
+  COMMAND ${CMAKE_SOURCE_DIR}/test_pipeline_mix
   COMMAND ${CMAKE_SOURCE_DIR}/test_channel_plan
-  DEPENDS verify_eq_low_seq test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_pipeline_cross_platform test_channel_plan)
+  DEPENDS verify_eq_low_seq test_eq_dynamic test_eq_normal test_eq_linear test_pipeline_chain test_pipeline_cross_platform test_pipeline_fanout test_pipeline_mix test_channel_plan)
 endif()

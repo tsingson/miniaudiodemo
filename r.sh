@@ -35,6 +35,12 @@ Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|build-demo
   build-uac2-macos  Build the macOS UAC2 sender
   run-uac2-macos    Run the macOS UAC2 sender (set UAC2_DEVICE_NAME)
   build-uac2-stm32  Build the STM32 UAC2 receiver scaffold
+    build-uac2-null  Build UAC2 protocol receiver without PCM5102A output
+    flash-uac2-null  Flash UAC2 protocol receiver without PCM5102A output
+    build-uac2-null-implicit  Build UAC2 null sink with implicit feedback
+    flash-uac2-null-implicit  Flash UAC2 null sink with implicit feedback
+    build-tinyusb-uac2  Build standalone TinyUSB UAC2 receiver
+    flash-tinyusb-uac2  Flash standalone TinyUSB UAC2 receiver
   flash-uac2-stm32  Flash the STM32 UAC2 receiver scaffold
   build-uac2-stm32-prod  Build the STM32 UAC2 production scaffold
   flash-uac2-stm32-prod  Flash the STM32 UAC2 production scaffold
@@ -75,12 +81,28 @@ build_uac2_macos_app() {
   env -u ZEPHYR_BASE -u ZEPHYR_TOOLCHAIN_VARIANT cmake --build build-macos-uac2 --target main_uac2_srv
 }
 
+uac2_pid_arg() {
+  echo $((0x0200 + ($(date +%s) % 0x0100)))
+}
+
 run_uac2_macos_app() {
   ./build-macos-uac2/main_uac2_srv
 }
 
 build_uac2_stm32_app() {
-  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2 --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON
+  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2 --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
+}
+
+build_uac2_null_app() {
+  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-null --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_NULL_SINK=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
+}
+
+build_uac2_null_implicit_app() {
+  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-null-implicit --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2_implicit.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_NULL_SINK=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
+}
+
+build_tinyusb_uac2_app() {
+  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-tinyusb-uac2 --pristine -- -DCONF_FILE=prj_tinyusb_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_tinyusb_uac2.overlay -DMINIAUDIO_TINYUSB_UAC2_MAIN=ON
 }
 
 build_uac2_stm32_prod_app() {
@@ -288,6 +310,24 @@ main() {
       ;;
     build-uac2-stm32)
       build_uac2_stm32_app
+      ;;
+    build-uac2-null)
+      build_uac2_null_app
+      ;;
+    flash-uac2-null)
+      flash_app "build-zephyr-f401rct6-uac2-null"
+      ;;
+    build-uac2-null-implicit)
+      build_uac2_null_implicit_app
+      ;;
+    flash-uac2-null-implicit)
+      flash_app "build-zephyr-f401rct6-uac2-null-implicit"
+      ;;
+    build-tinyusb-uac2)
+      build_tinyusb_uac2_app
+      ;;
+    flash-tinyusb-uac2)
+      flash_app "build-zephyr-f401rct6-tinyusb-uac2"
       ;;
     flash-uac2-stm32)
       flash_app "build-zephyr-f401rct6-uac2"

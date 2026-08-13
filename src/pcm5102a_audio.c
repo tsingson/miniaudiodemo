@@ -17,10 +17,10 @@ LOG_MODULE_REGISTER(pcm5102a_audio, LOG_LEVEL_INF);
 #define PCM_SAMPLE_RATE 48000U
 #define PCM_CHANNELS 2U
 #define PCM_WORD_SIZE_BITS 16U
-#define PCM_BLOCK_FRAMES 128U
+#define PCM_BLOCK_FRAMES 512U
 #define PCM_BYTES_PER_FRAME ((PCM_WORD_SIZE_BITS / 8U) * PCM_CHANNELS)
 #define PCM_BLOCK_SIZE (PCM_BLOCK_FRAMES * PCM_BYTES_PER_FRAME)
-#define PCM_SLAB_BLOCK_COUNT 12U
+#define PCM_SLAB_BLOCK_COUNT 4U
 #define PCM_PRIME_BLOCKS 4U
 #define PCM_I2S_NODE DT_CHOSEN(miniaudio_i2s_tx)
 
@@ -38,6 +38,8 @@ static bool g_started;
 static uint32_t g_queued_before_start;
 static uint32_t g_write_blocks;
 static uint32_t g_write_errors;
+static float g_output_accumulator[PCM_BLOCK_FRAMES * PCM_CHANNELS];
+static uint32_t g_output_accumulated_frames;
 
 static void reset_stream_state(void)
 {
@@ -193,25 +195,38 @@ void pcm5102a_audio_write_pcm16(const int16_t *interleaved, uint32_t frames)
 
 int pcm5102a_audio_output_stage(void *ctx, play_frame_block *block)
 {
+    uint32_t frames;
+
     if (block == NULL || block->channels != 2U || block->sampleRate != PCM_SAMPLE_RATE) {
         return -EINVAL;
     }
     (void)ctx;
-    if (block->layout == PLAY_BUFFER_LAYOUT_INTERLEAVED) {
-        pcm5102a_audio_write_float(block->interleaved, block->frameCount);
-        return 0;
-    }
-
-    static float interleaved[PCM_BLOCK_FRAMES * PCM_CHANNELS];
     if (block->frameCount > PCM_BLOCK_FRAMES || block->planar == NULL ||
         block->planar[0] == NULL || block->planar[1] == NULL) {
-        return -EINVAL;
+        if (block->layout != PLAY_BUFFER_LAYOUT_INTERLEAVED ||
+            block->frameCount > PCM_BLOCK_FRAMES || block->interleaved == NULL) {
+            return -EINVAL;
+        }
     }
-    for (uint32_t frame = 0U; frame < block->frameCount; ++frame) {
-        interleaved[frame * PCM_CHANNELS] = block->planar[0][frame];
-        interleaved[frame * PCM_CHANNELS + 1U] = block->planar[1][frame];
+
+    frames = block->frameCount;
+    if (block->layout == PLAY_BUFFER_LAYOUT_INTERLEAVED) {
+        memcpy(&g_output_accumulator[g_output_accumulated_frames * PCM_CHANNELS],
+               block->interleaved, frames * PCM_CHANNELS * sizeof(float));
+    } else {
+        for (uint32_t frame = 0U; frame < frames; ++frame) {
+            g_output_accumulator[(g_output_accumulated_frames + frame) * PCM_CHANNELS] =
+                block->planar[0][frame];
+            g_output_accumulator[(g_output_accumulated_frames + frame) * PCM_CHANNELS + 1U] =
+                block->planar[1][frame];
+        }
     }
-    pcm5102a_audio_write_float(interleaved, block->frameCount);
+
+    g_output_accumulated_frames += frames;
+    if (g_output_accumulated_frames == PCM_BLOCK_FRAMES) {
+        pcm5102a_audio_write_float(g_output_accumulator, PCM_BLOCK_FRAMES);
+        g_output_accumulated_frames = 0U;
+    }
     return 0;
 }
 

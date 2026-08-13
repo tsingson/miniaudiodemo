@@ -196,7 +196,7 @@ Only after protocol test passes:
 
 ## 13. Implementation status
 
-The STM32 path is now organized as `source -> DSP/plugin pipeline -> output`. PCM5102A is an output stage in `src/pcm5102a_audio.c/.h`, while UAC2 packet aggregation feeds the registered pipeline sink. A deterministic PCM16/48 kHz test target is available through `./r.sh build-pcm5102a-test`. The native UAC2 receiver still requires the hardware protocol gate: `SET_INTERFACE alt=1`, terminal enable, nonzero OUT payload, checksum/frame accounting, and stable I2S block delivery.
+The STM32 path is now organized as `source -> DSP/plugin pipeline -> output`. PCM5102A is an output stage in `src/pcm5102a_audio.c/.h`, while UAC2 packet aggregation feeds the registered pipeline sink. The receiver now reports invalid packet count, odd-byte packet count, and a rolling payload checksum before output. A deterministic PCM16/48 kHz test target is available through `./r.sh build-pcm5102a-test`. The native UAC2 receiver still requires the hardware protocol gate: `SET_INTERFACE alt=1`, terminal enable, nonzero OUT payload, checksum/frame accounting, and stable I2S block delivery.
 
 The first valid target is playback-only. “UAC2 is bidirectional” describes the class capability, not a requirement that every playback device expose a capture endpoint. A separate bidirectional test must add a real IN terminal, capture source, IN endpoint, and appropriate feedback.
 

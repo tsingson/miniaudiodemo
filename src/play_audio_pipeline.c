@@ -52,7 +52,11 @@ int play_audio_pipeline_process(play_audio_pipeline *pipeline,
 {
     play_frame_block block;
     if (pipeline == NULL || interleaved == NULL || frames == 0U ||
-        frames > PLAY_AUDIO_PIPELINE_MAX_FRAMES) return -1;
+        frames > PLAY_AUDIO_PIPELINE_MAX_FRAMES || pipeline->channels == 0U ||
+        pipeline->channels > MAX_CHANNELS || pipeline->sampleRate == 0U) {
+        if (pipeline != NULL) pipeline->failedBlocks++;
+        return -1;
+    }
     for (uint32_t frame = 0U; frame < frames; ++frame) {
         for (uint32_t ch = 0U; ch < pipeline->channels; ++ch) {
             pipeline->planarStorage[ch][frame] = interleaved[frame * pipeline->channels + ch];
@@ -65,7 +69,18 @@ int play_audio_pipeline_process(play_audio_pipeline *pipeline,
     block.channels = pipeline->channels;
     block.channelMask = 0U;
     block.sampleRate = pipeline->sampleRate;
-    return play_pipeline_run(&pipeline->pipeline, &block);
+    int ret = play_pipeline_run(&pipeline->pipeline, &block);
+    if (ret == 0) pipeline->processedBlocks++;
+    else pipeline->failedBlocks++;
+    return ret;
+}
+
+void play_audio_pipeline_get_stats(const play_audio_pipeline *pipeline,
+                                   uint32_t *processedBlocks,
+                                   uint32_t *failedBlocks)
+{
+    if (processedBlocks != NULL) *processedBlocks = pipeline != NULL ? pipeline->processedBlocks : 0U;
+    if (failedBlocks != NULL) *failedBlocks = pipeline != NULL ? pipeline->failedBlocks : 0U;
 }
 
 int play_audio_pipeline_pull(play_audio_pipeline *pipeline,

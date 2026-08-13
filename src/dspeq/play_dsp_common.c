@@ -246,6 +246,8 @@ int play_dsp_init(play_dsp_state* state, uint32_t sampleRate, uint32_t channels)
 
     state->sampleRate = sampleRate;
     state->channels = channels;
+    state->activeEqBands = EQ_BANDS;
+    state->activeEqBands = EQ_BANDS;
 
     play_eq_normal_init_default_profile(state);
     play_eq_dynamic_init_params_state(state);

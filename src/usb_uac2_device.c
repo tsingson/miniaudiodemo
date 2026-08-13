@@ -14,6 +14,10 @@
 
 LOG_MODULE_REGISTER(usb_uac2_device, LOG_LEVEL_INF);
 
+#ifndef MINIAUDIO_UAC2_PID
+#define MINIAUDIO_UAC2_PID 0x0102
+#endif
+
 #define UAC2_INPUT_TERMINAL_ID UAC2_ENTITY_ID(DT_NODELABEL(uac2_input))
 #define UAC2_MAX_PACKET_SIZE 200U
 #define UAC2_BLOCK_FRAMES 48U
@@ -35,14 +39,18 @@ static atomic_t g_i2s_block_count;
 static atomic_t g_buf_requests;
 static atomic_t g_buf_rejects;
 static atomic_t g_zero_packets;
+static atomic_t g_invalid_packets;
+static atomic_t g_odd_byte_packets;
+static atomic_t g_checksum;
 static atomic_t g_first_packet_logged;
 static atomic_t g_sof_seen;
+static atomic_t g_terminal_enabled;
 static usb_uac2_audio_sink_fn g_audio_sink;
 static void *g_audio_sink_ctx;
 
 USBD_DEVICE_DEFINE(uac2_device,
            DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
-           0x2FE3, 0x0102);
+           0x2FE3, MINIAUDIO_UAC2_PID);
 USBD_DESC_LANG_DEFINE(uac2_lang);
 USBD_DESC_MANUFACTURER_DEFINE(uac2_mfr, "miniaudiodemo");
 USBD_DESC_PRODUCT_DEFINE(uac2_product, "STM32F401 PCM5102A UAC2");
@@ -71,6 +79,7 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
     ARG_UNUSED(user_data);
     if (terminal == UAC2_INPUT_TERMINAL_ID) {
         printk("UAC2 terminal %u %s\n", terminal, enabled ? "enabled" : "disabled");
+        atomic_set(&g_terminal_enabled, enabled ? 1 : 0);
         if (!enabled) {
             atomic_set(&g_uac2_stream_active, 0);
         }
@@ -107,6 +116,7 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
     ARG_UNUSED(dev);
     ARG_UNUSED(user_data);
     if (terminal != UAC2_INPUT_TERMINAL_ID || buf == NULL) {
+        atomic_inc(&g_invalid_packets);
         return;
     }
 
@@ -122,6 +132,15 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
         atomic_inc(&g_zero_packets);
     }
 
+    if ((size % (sizeof(int16_t) * UAC2_CHANNELS)) != 0U) {
+        atomic_inc(&g_odd_byte_packets);
+        atomic_inc(&g_invalid_packets);
+        k_mem_slab_free(&uac2_rx_slab, buf);
+        return;
+    }
+    for (uint16_t byte = 0U; byte < size; ++byte) {
+        atomic_add(&g_checksum, ((const uint8_t *)buf)[byte]);
+    }
     frames = size / (sizeof(int16_t) * UAC2_CHANNELS);
     for (size_t i = 0U; i < frames; ++i) {
         pending_samples[pending_frames * UAC2_CHANNELS] =
@@ -139,7 +158,16 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
         }
     }
     atomic_add(&g_frame_count, frames);
-    k_mem_slab_free(&uac2_rx_slab, buf);
+}
+
+static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
+                                void *buf, void *user_data)
+{
+    ARG_UNUSED(dev);
+    ARG_UNUSED(user_data);
+    if (terminal == UAC2_INPUT_TERMINAL_ID && buf != NULL) {
+        k_mem_slab_free(&uac2_rx_slab, buf);
+    }
 }
 
 void usb_uac2_set_audio_sink(usb_uac2_audio_sink_fn sink, void *ctx)
@@ -162,12 +190,18 @@ static const struct uac2_ops uac2_ops = {
     .terminal_update_cb = uac2_terminal_update_cb,
     .get_recv_buf = uac2_get_recv_buf,
     .data_recv_cb = uac2_data_recv_cb,
+    .buf_release_cb = uac2_buf_release_cb,
     .feedback_cb = uac2_feedback_cb,
 };
 
 bool usb_uac2_stream_active(void)
 {
     return atomic_get(&g_uac2_stream_active) != 0;
+}
+
+bool usb_uac2_terminal_enabled(void)
+{
+    return atomic_get(&g_terminal_enabled) != 0;
 }
 
 bool usb_uac2_first_packet_seen(void)
@@ -178,7 +212,8 @@ bool usb_uac2_first_packet_seen(void)
 void usb_uac2_get_stats(uint32_t *packets, uint32_t *bytes,
                         uint32_t *frames, uint32_t *i2s_blocks,
                         uint32_t *buf_requests, uint32_t *buf_rejects,
-                        uint32_t *zero_packets)
+                        uint32_t *zero_packets, uint32_t *invalid_packets,
+                        uint32_t *odd_byte_packets, uint32_t *checksum)
 {
     if (packets != NULL) {
         *packets = (uint32_t)atomic_get(&g_packet_count);
@@ -201,6 +236,9 @@ void usb_uac2_get_stats(uint32_t *packets, uint32_t *bytes,
     if (zero_packets != NULL) {
         *zero_packets = (uint32_t)atomic_get(&g_zero_packets);
     }
+    if (invalid_packets != NULL) *invalid_packets = (uint32_t)atomic_get(&g_invalid_packets);
+    if (odd_byte_packets != NULL) *odd_byte_packets = (uint32_t)atomic_get(&g_odd_byte_packets);
+    if (checksum != NULL) *checksum = (uint32_t)atomic_get(&g_checksum);
 }
 
 

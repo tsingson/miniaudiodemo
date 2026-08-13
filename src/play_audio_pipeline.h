@@ -6,7 +6,7 @@
 #include "play_dsp_common.h"
 #include "play_pipeline.h"
 
-#define PLAY_AUDIO_PIPELINE_MAX_FRAMES 128U
+#define PLAY_AUDIO_PIPELINE_MAX_FRAMES 512U
 
 typedef int (*play_audio_source_read_fn)(void *ctx,
                                          float *interleaved,
@@ -21,6 +21,8 @@ typedef struct
     float *planar[MAX_CHANNELS];
     uint32_t sampleRate;
     uint32_t channels;
+    uint32_t processedBlocks;
+    uint32_t failedBlocks;
 } play_audio_pipeline;
 
 int play_audio_pipeline_init(play_audio_pipeline *pipeline, uint32_t sampleRate, uint32_t channels);
@@ -35,5 +37,8 @@ int play_audio_pipeline_process(play_audio_pipeline *pipeline,
 int play_audio_pipeline_pull(play_audio_pipeline *pipeline,
                              void *sourceCtx,
                              play_audio_source_read_fn readSource);
+void play_audio_pipeline_get_stats(const play_audio_pipeline *pipeline,
+                                   uint32_t *processedBlocks,
+                                   uint32_t *failedBlocks);
 
 #endif

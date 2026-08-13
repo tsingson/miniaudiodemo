@@ -16,6 +16,7 @@ typedef struct play_dsp_state
 {
     uint32_t sampleRate;
     uint32_t channels;
+    uint8_t activeEqBands;
 
     float bandFreqs[EQ_BANDS];
     float gainsDB[EQ_BANDS];

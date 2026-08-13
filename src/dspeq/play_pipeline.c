@@ -1,4 +1,5 @@
 #include "play_pipeline.h"
+#include "play_dsp_defs.h"
 
 #include <stddef.h>
 
@@ -68,6 +69,11 @@ int play_pipeline_run(play_pipeline* pipeline, play_frame_block* block)
 
     if (pipeline == NULL || block == NULL)
     {
+        return -1;
+    }
+
+    if (block->frameCount == 0 || block->channels == 0 || block->channels > MAX_CHANNELS ||
+        block->sampleRate == 0 || block->channelMask > 0x03u) {
         return -1;
     }
 

@@ -7,6 +7,7 @@
 #include <zephyr/logging/log.h>
 
 #include "audio_4_wav_data.h"
+#include "cmsis_eq_stage.h"
 #include "pcm5102a_audio.h"
 #include "play_audio_pipeline.h"
 #include "st7735s_log_display.h"
@@ -14,7 +15,7 @@
 LOG_MODULE_REGISTER(main_pcm5102a_test, LOG_LEVEL_INF);
 
 #define TEST_RATE 48000U
-#define TEST_FRAMES 128U
+#define TEST_FRAMES 512U
 #define TEST_CHANNELS 2U
 
 struct wav_view {
@@ -87,6 +88,7 @@ int main(void)
 {
     static float block[TEST_FRAMES * TEST_CHANNELS];
     static play_audio_pipeline pipeline;
+    static cmsis_eq_stage cmsis_eq;
     struct wav_view wav;
     uint32_t position = 0U;
     int ret;
@@ -98,13 +100,12 @@ int main(void)
     }
     ret = pcm5102a_audio_init();
     if (ret == 0) ret = play_audio_pipeline_init(&pipeline, TEST_RATE, TEST_CHANNELS);
-    if (ret == 0) {
-        for (uint32_t plugin = 0U; plugin < PLAY_PLUGIN_SLOT_COUNT; ++plugin) {
-            pipeline.dsp.pluginSlots[plugin].enabled = 0U;
-        }
-        pipeline.dsp.pluginSlots[PLAY_PLUGIN_EQ_CORE].enabled = 1U;
+    if (ret == 0) ret = cmsis_eq_stage_init(&cmsis_eq, TEST_RATE, TEST_CHANNELS,
+                                             1000.0f, 3.0f, 0.707f);
+    if (ret == 0 && play_pipeline_add_stage(&pipeline.pipeline, "cmsis-biquad", 1,
+                                            &cmsis_eq, cmsis_eq_stage_process) < 0) {
+        ret = -1;
     }
-    if (ret == 0) ret = play_audio_pipeline_add_dsp(&pipeline);
     if (ret == 0) ret = play_audio_pipeline_add_output(&pipeline, "pcm5102a", NULL,
                                                        pcm5102a_audio_output_stage);
     if (ret != 0) {
@@ -114,7 +115,7 @@ int main(void)
     }
 
     LOG_INF("WAV source: 440 Hz PCM16 stereo 48 kHz");
-    st7735s_log_display_line("WAV EQ 440Hz");
+    st7735s_log_display_line("WAV 440Hz 48k");
     st7735s_log_display_line("I2S running");
     while (1) {
         fill_block(block, &wav, &position);
