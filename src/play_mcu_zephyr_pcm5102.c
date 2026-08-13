@@ -1,11 +1,12 @@
 #include "play_dsp_common.h"
 
+#include <errno.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/i2s.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -20,10 +21,10 @@ LOG_MODULE_REGISTER(play_mcu_zephyr, LOG_LEVEL_INF);
 #define PLAY_BLOCK_FRAMES 128U
 #define PLAY_BYTES_PER_FRAME ((PLAY_WORD_SIZE_BITS / 8U) * PLAY_CHANNELS)
 #define PLAY_BLOCK_SIZE (PLAY_BLOCK_FRAMES * PLAY_BYTES_PER_FRAME)
-#define PLAY_I2S_SLAB_BLOCK_COUNT 8
+#define PLAY_I2S_SLAB_BLOCK_COUNT 12
+#define PLAY_I2S_PRIME_BLOCKS 3U
 
 #define PLAY_I2S_NODE DT_CHOSEN(miniaudio_i2s_tx)
-#define PCM5102A_CTRL_NODE DT_NODELABEL(pcm5102a_ctrl)
 
 #if !DT_NODE_HAS_STATUS(PLAY_I2S_NODE, okay)
 #error "chosen miniaudio,i2s-tx is missing; check boards/stm32f401rct6.overlay"
@@ -33,66 +34,74 @@ K_MEM_SLAB_DEFINE_STATIC(play_i2s_tx_slab, PLAY_BLOCK_SIZE, PLAY_I2S_SLAB_BLOCK_
 
 static const struct device *g_i2s_dev = DEVICE_DT_GET(PLAY_I2S_NODE);
 
-static const struct gpio_dt_spec g_flt = GPIO_DT_SPEC_GET_OR(PCM5102A_CTRL_NODE, flt_gpios, {0});
-static const struct gpio_dt_spec g_demp = GPIO_DT_SPEC_GET_OR(PCM5102A_CTRL_NODE, demp_gpios, {0});
-static const struct gpio_dt_spec g_xsmt = GPIO_DT_SPEC_GET_OR(PCM5102A_CTRL_NODE, xsmt_gpios, {0});
-static const struct gpio_dt_spec g_fmt = GPIO_DT_SPEC_GET_OR(PCM5102A_CTRL_NODE, fmt_gpios, {0});
-static const struct gpio_dt_spec g_lineout_en = GPIO_DT_SPEC_GET_OR(PCM5102A_CTRL_NODE, lineout_en_gpios, {0});
-
 static bool g_i2s_ready;
 static bool g_i2s_started;
 static bool g_lcd_ready;
 static bool g_lcd_init_attempted;
 static uint32_t g_heartbeat;
+static uint32_t g_i2s_write_fail_count;
+static uint32_t g_tx_queued_before_start;
 
-static int pcm5102a_pin_init_one(const struct gpio_dt_spec *spec, int initial, const char *name)
+static int play_i2s_configure_current_format(void);
+
+static void play_i2s_reset_tx_state(void)
 {
-	if ((spec == NULL) || (spec->port == NULL)) {
-		LOG_INF("PCM5102A pin %s not configured", name);
-		return 0;
-	}
-	if (!device_is_ready(spec->port)) {
-		LOG_ERR("PCM5102A pin %s gpio port not ready", name);
-		return -ENODEV;
-	}
-	int ret = gpio_pin_configure_dt(spec, GPIO_OUTPUT_INACTIVE | (initial ? GPIO_OUTPUT_ACTIVE : 0));
-	if (ret == 0) {
-		LOG_INF("PCM5102A pin %s configured initial=%d", name, initial);
-	} else {
-		LOG_ERR("PCM5102A pin %s configure failed: %d", name, ret);
-	}
-	return ret;
+	g_i2s_started = false;
+	g_tx_queued_before_start = 0U;
 }
 
-static void pcm5102a_control_pins_init(void)
+static void play_i2s_recover(const char *reason)
 {
-	(void)pcm5102a_pin_init_one(&g_flt, 0, "FLT");
-	(void)pcm5102a_pin_init_one(&g_demp, 0, "DEMP");
-	(void)pcm5102a_pin_init_one(&g_fmt, 0, "FMT");
-	(void)pcm5102a_pin_init_one(&g_lineout_en, 1, "LINEOUT_EN");
-	(void)pcm5102a_pin_init_one(&g_xsmt, 1, "XSMT");
+	int ret_prepare;
+	int ret_drop;
+	int ret_cfg;
+	char msg[32];
+
+	ret_prepare = i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_PREPARE);
+	ret_drop = i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+
+	/* Reconfigure after DROP so the peripheral/DMA state is deterministic for next START. */
+	ret_cfg = play_i2s_configure_current_format();
+	play_i2s_reset_tx_state();
+
+	LOG_WRN("I2S recover (%s): prepare=%d drop=%d cfg=%d", reason, ret_prepare, ret_drop, ret_cfg);
+	if (g_lcd_ready) {
+		(void)snprintf(msg, sizeof(msg), "I2S rec p%d d%d", ret_prepare, ret_drop);
+		st7735s_log_display_line(msg);
+	}
+
+	if (ret_cfg != 0) {
+		g_i2s_ready = false;
+		if (g_lcd_ready) {
+			st7735s_log_display_line("I2S rec cfg fail");
+		}
+	}
 }
 
-static int play_i2s_init(void)
+static int play_i2s_configure_current_format(void)
 {
 	struct i2s_config cfg = {
 		.word_size = PLAY_WORD_SIZE_BITS,
 		.channels = PLAY_CHANNELS,
 		.format = I2S_FMT_DATA_FORMAT_I2S | I2S_FMT_CLK_NF_NB,
-		.options = I2S_OPT_BIT_CLK_GATED |
-				   I2S_OPT_BIT_CLK_CONTROLLER |
+		.options = I2S_OPT_BIT_CLK_CONTROLLER |
 				   I2S_OPT_FRAME_CLK_CONTROLLER,
 		.frame_clk_freq = PLAY_SAMPLE_RATE,
 		.mem_slab = &play_i2s_tx_slab,
 		.block_size = PLAY_BLOCK_SIZE,
 		.timeout = 1000,
 	};
+
+	return i2s_configure(g_i2s_dev, I2S_DIR_TX, &cfg);
+}
+static int play_i2s_init(void)
+{
 	int ret;
 
 	if (!device_is_ready(g_i2s_dev)) {
 		LOG_ERR("I2S device not ready");
 		if (g_lcd_ready) {
-			st7735s_log_display_line("I2S设备未就绪");
+			st7735s_log_display_line("I2S not ready");
 		}
 		return -ENODEV;
 	}
@@ -103,29 +112,28 @@ static int play_i2s_init(void)
 		if (st7735s_log_display_init() == 0) {
 			g_lcd_ready = true;
 			LOG_INF("ST7735S logger init OK");
-			st7735s_log_display_line("系统启动 / Boot");
+			st7735s_log_display_line("System boot");
 		} else {
 			LOG_WRN("ST7735S logger init failed");
 		}
 	}
 
-	pcm5102a_control_pins_init();
-
-	ret = i2s_configure(g_i2s_dev, I2S_DIR_TX, &cfg);
+	ret = play_i2s_configure_current_format();
 	if (ret != 0) {
 		LOG_ERR("i2s_configure failed: %d", ret);
 		if (g_lcd_ready) {
-			st7735s_log_display_line("I2S配置失败");
+			st7735s_log_display_line("I2S config failed");
 		}
 		return ret;
 	}
 
 	g_i2s_ready = true;
-	g_i2s_started = false;
+	play_i2s_reset_tx_state();
 	LOG_INF("PCM5102A I2S TX initialized @ %u Hz", PLAY_SAMPLE_RATE);
+	LOG_INF("I2S running with continuous BCLK/LRCLK");
 	LOG_INF("I2S block size=%u bytes, slab blocks=%u", (unsigned int)PLAY_BLOCK_SIZE, (unsigned int)PLAY_I2S_SLAB_BLOCK_COUNT);
 	if (g_lcd_ready) {
-		st7735s_log_display_line("PCM5102A就绪 48kHz");
+		st7735s_log_display_line("PCM5102A ready 48k");
 	}
 	return 0;
 }
@@ -142,7 +150,7 @@ uint32_t play_mcu_read_frames(float *interleavedOut, uint32_t maxFrames)
 	if (g_lcd_ready) {
 		++g_heartbeat;
 		if ((g_heartbeat % 1000U) == 0U) {
-			st7735s_log_display_line("运行中...");
+			st7735s_log_display_line("Running...");
 		}
 	}
 
@@ -175,7 +183,7 @@ void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount)
 	if (ret != 0) {
 		LOG_WRN("No TX slab block: %d", ret);
 		if (g_lcd_ready) {
-			st7735s_log_display_line("I2S发送缓冲不足");
+			st7735s_log_display_line("I2S TX buffer short");
 		}
 		return;
 	}
@@ -197,30 +205,50 @@ void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount)
 	bytes = PLAY_BLOCK_SIZE;
 	ret = i2s_write(g_i2s_dev, tx_block, bytes);
 	if (ret != 0) {
+		char msg[32];
+		++g_i2s_write_fail_count;
 		LOG_WRN("i2s_write failed: %d", ret);
 		if (g_lcd_ready) {
-			st7735s_log_display_line("I2S发送失败");
+			(void)snprintf(msg, sizeof(msg), "I2S wr fail %d", ret);
+			st7735s_log_display_line(msg);
 		}
 		k_mem_slab_free(&play_i2s_tx_slab, (void *)tx_block);
-		(void)i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
-		g_i2s_started = false;
+
+		if (ret == -EAGAIN || ret == -EBUSY || ret == -ENOMEM) {
+			/* TX queue temporary pressure: keep stream and retry on next block. */
+			k_sleep(K_MSEC(1));
+			return;
+		}
+
+		if (ret == -EIO) {
+			/* For STM32 driver, EIO here means TX state left READY/RUNNING (often ERROR due underrun). */
+			play_i2s_recover("write-eio");
+			return;
+		}
+
+		play_i2s_recover("write-other");
 		return;
 	}
 
 	if (!g_i2s_started) {
+		++g_tx_queued_before_start;
+		if (g_tx_queued_before_start < PLAY_I2S_PRIME_BLOCKS) {
+			return;
+		}
+
 		ret = i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
 		if (ret != 0) {
 			LOG_WRN("i2s start failed: %d", ret);
 			if (g_lcd_ready) {
-				st7735s_log_display_line("I2S启动失败");
+				st7735s_log_display_line("I2S start failed");
 			}
-			(void)i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
-			g_i2s_started = false;
+			play_i2s_recover("start-fail");
 			return;
 		}
 		g_i2s_started = true;
+		g_tx_queued_before_start = 0U;
 		if (g_lcd_ready) {
-			st7735s_log_display_line("音频流已启动");
+			st7735s_log_display_line("Audio stream started");
 		}
 	}
 }

@@ -6,10 +6,19 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
 
   option(MINIAUDIO_ST7735S_ZPIX_FONT "Enable full ZPix Chinese font logger (large flash usage)" OFF)
   option(MINIAUDIO_ST7735S_DEMO_MAIN "Use minimal ST7735S hello-copilot demo entry" OFF)
+  option(MINIAUDIO_PCM5102_ST7735S_MAIN "Use PCM5102 patterned-noise + ST7735S dual-log demo entry" OFF)
+  option(MINIAUDIO_I2S_MAIN "Use direct PCM5102 I2S WAV playback entry" OFF)
   option(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN "Use minimal STM32H7B0VBT6 hello-serial demo entry" OFF)
 
   if(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN)
     target_sources(app PRIVATE src/main_stm32h7b0vbt6.c)
+  elseif(MINIAUDIO_PCM5102_ST7735S_MAIN)
+    target_sources(app PRIVATE
+      src/main_pcm5102_st7735s.c
+      src/audio_3_wav_data.c
+      src/play_mcu_zephyr_pcm5102.c)
+  elseif(MINIAUDIO_I2S_MAIN)
+    target_sources(app PRIVATE src/main_i2s.c src/wav_3.c)
   elseif(MINIAUDIO_ST7735S_DEMO_MAIN)
     target_sources(app PRIVATE src/main_st7735s.c)
   else()

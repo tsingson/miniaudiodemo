@@ -10,10 +10,12 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/byteorder.h>
 
-#define GLYPH_W 5U
-#define GLYPH_H 7U
-#define CELL_W 6U
-#define CELL_H 8U
+#define GLYPH_BITMAP_W 5U
+#define GLYPH_BITMAP_H 7U
+#define GLYPH_W 8U
+#define GLYPH_H 12U
+#define CELL_W 8U
+#define CELL_H 12U
 #define CHAR_SPACING 0U
 #define LINE_SPACING 2U
 
@@ -174,12 +176,12 @@ static int draw_glyph(uint16_t x, uint16_t y, const struct glyph5x7 *glyph)
     uint8_t gy;
     uint8_t gx;
 
-    for (gy = 0U; gy < GLYPH_H; ++gy) {
-        for (gx = 0U; gx < GLYPH_W; ++gx) {
-            uint8_t bit = (uint8_t)(1U << (GLYPH_W - 1U - gx));
+    for (gy = 0U; gy < GLYPH_BITMAP_H; ++gy) {
+        for (gx = 0U; gx < GLYPH_BITMAP_W; ++gx) {
+            uint8_t bit = (uint8_t)(1U << (GLYPH_BITMAP_W - 1U - gx));
             if (glyph->row[gy] & bit) {
-                int ret = fill_rect((uint16_t)(x + gx),
-                                    (uint16_t)(y + gy),
+                int ret = fill_rect((uint16_t)(x + 1U + gx),
+                                    (uint16_t)(y + 2U + gy),
                                     1U,
                                     1U,
                                     RGB565_BLACK);

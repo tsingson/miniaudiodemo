@@ -103,3 +103,4 @@ YAMLLint.txt
 */verify_eq_taps
 */test_eq_linear
 */verify_eq_gain
+tools/wav_to_pcm_i2s

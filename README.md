@@ -8,9 +8,9 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 上电中, 按 boot0 / 复位锓, 松开复位键, 0.5秒松开 boot0 
 断电后, 按 boot0 上电 后 0.5秒松开 boot0
 
-默认日志口已切换为 USB CDC ACM（PA11/PA12），macOS 侧设备名通常为 `/dev/cu.usbmodem*`。
+STM32F401 调试串口与 ST7735S 英文显示的独立说明见：[docs/stm32f401_debug_display.md](docs/stm32f401_debug_display.md)。默认构建为调试模式，使用 USB CDC ACM；生产模式关闭日志、控制台和串口，但保留显示/音频驱动。
 
-USART1 (PA9/PA10, 115200) 仍可保留作硬件后备串口。
+USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_prod.conf`，关闭日志、控制台和 USB CDC。
 
 
 
@@ -32,6 +32,14 @@ west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
 west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_DEMO_MAIN=ON
 ```
 
+若运行 PCM5102 + ST7735S 联合入口（`src/main_pcm5102_st7735s.c`，输出规则噪音并双通道日志）：
+
+```sh
+west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6-pcm5102-st7735s --pristine -- -DMINIAUDIO_PCM5102_ST7735S_MAIN=ON
+```
+
+当前该入口已改为内嵌并循环播放 `./3.wav`（WAV PCM16，支持 mono/stereo；若源采样率不是 48kHz，会在固件内按最近邻方式重采样到 48kHz 输出）。
+
 若做 STM32H7B0VBT6 串口对比测试入口（`src/main_stm32h7b0vbt6.c`，打印 `hello copilot`）：
 
 ```sh
@@ -40,7 +48,7 @@ west build -b mini_stm32h7b0 . --build-dir build-zephyr-h7b0vbt6 --pristine -- -
 
 说明：
 - 默认使用轻量显示日志实现（不编入 `zpix12_font_data.c`），用于适配 STM32F401RCT6 的 256KB Flash。
-- 轻量模式下，ST7735S 仍显示英文/ASCII 日志；中文会退化为 `?`（避免大字库占用）。
+- 轻量模式下，ST7735S 使用 8x12 字符单元显示英文/ASCII；中文会退化为 `?`（避免大字库占用）。
 - 若你换到更大 Flash 容量芯片并需要中文字库，可开启：
 
 ```sh
@@ -48,6 +56,20 @@ west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -D
 ```
 
 overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f401rct6.overlay`）
+
+### ST7735S 英文显示复用
+
+轻量显示模块 `src/st7735s_log_display_stub.c` 使用 8x12 像素字符单元，内含完整可打印 ASCII 字符表；实际笔画为紧凑的 5x7 位图并在单元内留白，默认白底黑字。未知或非 ASCII 字节显示为 `?`。
+
+复用方式：
+
+```c
+if (st7735s_log_display_init() == 0) {
+	st7735s_log_display_line("Hello Copilot");
+}
+```
+
+该显示模块独立于 USB 串口，生产模式仍可保留屏幕显示；设备树需要保留 `zephyr,display` 和 `st7735s_ctrl.blk-gpios`。
 
 ### 一键脚本
 
@@ -59,12 +81,21 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 ./r.sh build-demo # 编译 ST7735S demo 入口（src/main_st7735s.c）
 ./r.sh flash-demo # 烧录 ST7735S demo 固件
 ./r.sh all-demo   # 编译 + 烧录 ST7735S demo + 串口监测
+./r.sh build-prod # 编译生产模式，关闭 USB 调试串口
+./r.sh flash-prod # 烧录生产模式固件
+./r.sh build-demo-prod # 编译 ST7735S demo 生产固件，关闭调试串口
+./r.sh flash-demo-prod # 烧录 ST7735S demo 生产固件
+./r.sh build-pcm  # 编译 PCM5102+ST7735S 规则噪音入口（src/main_pcm5102_st7735s.c）
+./r.sh flash-pcm  # 烧录 PCM5102+ST7735S 规则噪音固件
+./r.sh all-pcm    # 编译 + 烧录 PCM5102+ST7735S + 串口监测
 ./r.sh clean      # 清理 ./build-zephyr-f401rct6 临时目录
 ```
 
 避免烧错固件：
 - `build/flash/all` 使用默认入口（`src/play_mcu.c`）。
 - `build-demo/flash-demo/all-demo` 使用 ST7735S 演示入口（`src/main_st7735s.c`）。
+- 默认 `prj.conf` 是调试模式；生产模式使用 `prj_prod.conf`。
+- `build-pcm/flash-pcm/all-pcm` 使用 PCM5102+ST7735S 规则噪音入口（`src/main_pcm5102_st7735s.c`）。
 
 ### 当前 I2S/控制脚映射
 
@@ -75,11 +106,11 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 - DEMP: PA1
 - XSMT: PA4
 - FMT: PA8
-- LINEOUT_EN: PB0
 
 说明：
 - 你的板子未给出 PC6，可不接 PCM5102A 的 SCK(MCLK)，当前按 3 线 I2S 运行（BCK/LCK/DIN）。
 - VIN/GND/A3V3/AGND/ROUT/LROUT/Line Out 为模拟/电源连线，不在 DTS 中以数字外设配置。
+- PCM5102 控制脚默认电平：`FLT=1(低延迟)`、`DEMP=0(关闭去加重)`、`FMT=0(I2S)`、`XSMT=1(取消静音)`。
 
 ## ST7735S 显示移植
 
@@ -135,7 +166,6 @@ overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f4
 - PA1: DEMP 控制
 - PA4: XSMT 控制
 - PA8: FMT 控制
-- PB0: LINEOUT_EN 控制
 
 ### 显示屏（ST7735S, SPI1）
 

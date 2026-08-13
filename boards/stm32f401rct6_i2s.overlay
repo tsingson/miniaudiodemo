@@ -1,0 +1,51 @@
+/*
+ * STM32F401RCT6 + PCM5102A direct I2S playback overlay
+ * Build with:
+ *   west build -b nucleo_f401re . --pristine -- -DCONF_FILE=prj_i2s.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_i2s.overlay -DMINIAUDIO_I2S_MAIN=ON
+ */
+
+
+/ {
+	chosen {
+		miniaudio,i2s-tx = &i2s2;
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+	};
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&spi1 {
+	status = "disabled";
+};
+
+&dma1 {
+	status = "okay";
+};
+ 
+
+&i2s2 {
+	pinctrl-0 = <&i2s2_ck_pb13 &i2s2_sd_pb15 &i2s2_ws_pb12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+/* SPI2 and I2S2 share peripheral registers on STM32F401. */
+&spi2 {
+	status = "disabled";
+};
+
+/* STM32F401RCT6: 256KB Flash, 64KB SRAM */
+&flash0 {
+	reg = <0x08000000 DT_SIZE_K(256)>;
+};
+
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(64)>;
+};
+
