@@ -223,16 +223,6 @@ int main(void)
         return -1;
     }
 
-    {
-        const float lowSeqFreqs[5] = {35.0f, 60.0f, 110.0f, 220.0f, 300.0f};
-        const float lowSeqGains[5] = {6.0f, 6.0f, 4.0f, 2.5f, 1.5f};
-        const float lowSeqQs[5] = {2.2f, 2.1f, 1.8f, 1.4f, 1.2f};
-
-        play_dsp_set_low_seq_mode(&app.dsp, EQ_LOW_SEQ_MODE_BALANCED);
-        play_dsp_set_low_seq_profile(&app.dsp, lowSeqFreqs, lowSeqGains, lowSeqQs, 5, 1);
-        play_dsp_set_low_seq_enabled(&app.dsp, 1);
-    }
-
     http.app = &app;
     atomic_init(&http.running, true);
     if (pthread_create(&http.thread, NULL, dsp_http_ctrl_thread_main, &http) != 0)
