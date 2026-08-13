@@ -621,7 +621,7 @@ void play_dsp_process_planar(play_dsp_state* state,
                              uint32_t channels)
 {
     play_observer_metrics observerMetrics;
-    play_dsp_plugins_runtime pluginsRuntime;
+    static play_dsp_plugins_runtime pluginsRuntime;
     play_frame_block block;
     uint32_t pipelineChannels;
 

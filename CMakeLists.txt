@@ -7,15 +7,63 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   option(MINIAUDIO_ST7735S_ZPIX_FONT "Enable full ZPix Chinese font logger (large flash usage)" OFF)
   option(MINIAUDIO_ST7735S_DEMO_MAIN "Use minimal ST7735S hello-copilot demo entry" OFF)
   option(MINIAUDIO_PCM5102_ST7735S_MAIN "Use PCM5102A + ST7735S audio demo entry" OFF)
+  option(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN "Use UAC2 receiver + PCM5102A + ST7735S entry" OFF)
+  option(MINIAUDIO_PCM5102A_TEST_MAIN "Use deterministic PCM5102A writer test entry" OFF)
   option(MINIAUDIO_I2S_MAIN "Use direct PCM5102 I2S WAV playback entry" OFF)
   option(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN "Use minimal STM32H7B0VBT6 hello-serial demo entry" OFF)
 
-  if(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN)
+  if(MINIAUDIO_PCM5102A_TEST_MAIN)
+    target_sources(app PRIVATE
+      src/main_pcm5102a_test.c
+      src/audio_4_wav_data.c
+      src/pcm5102a_audio.c
+      src/play_audio_pipeline.c
+      src/dspeq/play_dsp_common.c
+      src/dspeq/play_dsp_plugins.c
+      src/dspeq/play_eq_runtime.c
+      src/dspeq/eq_low_seq.c
+      src/dspeq/play_pipeline.c
+      src/dspeq/play_pipeline_eq_stages.c
+      src/dspeq/play_eq_linear.c
+      src/dspeq/play_eq_dynamic.c
+      src/dspeq/play_eq_normal.c
+      src/dspeq/play_multiband_dynamics.c)
+  elseif(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN)
     target_sources(app PRIVATE src/main_stm32h7b0vbt6.c)
+  elseif(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
+    target_sources(app PRIVATE
+      src/main_pcm5102_st7735s_uac2.c
+      src/play_mcu_zephyr_pcm5102.c
+      src/pcm5102a_audio.c
+      src/play_audio_pipeline.c
+      src/dspeq/play_dsp_common.c
+      src/dspeq/play_dsp_plugins.c
+      src/dspeq/play_eq_runtime.c
+      src/dspeq/eq_low_seq.c
+      src/dspeq/play_pipeline.c
+      src/dspeq/play_pipeline_eq_stages.c
+      src/dspeq/play_eq_linear.c
+      src/dspeq/play_eq_dynamic.c
+      src/dspeq/play_eq_normal.c
+      src/dspeq/play_multiband_dynamics.c
+      src/audio_3_wav_data.c
+      src/usb_uac2_device.c)
   elseif(MINIAUDIO_PCM5102_ST7735S_MAIN)
     target_sources(app PRIVATE
       src/main_pcm5102_st7735s.c
       src/audio_3_wav_data.c
+      src/pcm5102a_audio.c
+      src/play_audio_pipeline.c
+      src/dspeq/play_dsp_common.c
+      src/dspeq/play_dsp_plugins.c
+      src/dspeq/play_eq_runtime.c
+      src/dspeq/eq_low_seq.c
+      src/dspeq/play_pipeline.c
+      src/dspeq/play_pipeline_eq_stages.c
+      src/dspeq/play_eq_linear.c
+      src/dspeq/play_eq_dynamic.c
+      src/dspeq/play_eq_normal.c
+      src/dspeq/play_multiband_dynamics.c
       src/play_mcu_zephyr_pcm5102.c)
   elseif(MINIAUDIO_I2S_MAIN)
     target_sources(app PRIVATE src/main_i2s.c src/wav_3.c)
@@ -25,6 +73,8 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
     target_sources(app PRIVATE
       src/play_mcu.c
       src/play_mcu_zephyr_pcm5102.c
+      src/pcm5102a_audio.c
+      src/play_audio_pipeline.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -64,6 +114,20 @@ add_executable(three_way_macos src/three_way_crossover_macos_offline.c
 
 add_executable(play_macos
                src/play_macos.c
+               src/dsp_http_ctrl.c
+               src/dspeq/play_dsp_common.c
+               src/dspeq/play_dsp_plugins.c
+               src/dspeq/play_eq_runtime.c
+               src/dspeq/eq_low_seq.c
+               src/dspeq/play_pipeline.c
+               src/dspeq/play_pipeline_eq_stages.c
+               src/dspeq/play_eq_linear.c
+               src/dspeq/play_eq_dynamic.c
+               src/dspeq/play_eq_normal.c
+               src/dspeq/play_multiband_dynamics.c
+               src/miniaudio/miniaudio.c)
+add_executable(main_uac2_srv
+               src/main_uac2_srv.c
                src/dsp_http_ctrl.c
                src/dspeq/play_dsp_common.c
                src/dspeq/play_dsp_plugins.c
@@ -144,6 +208,7 @@ add_executable(test_channel_plan
 target_include_directories(miniaudiodemo PRIVATE src src/dspeq)
 target_include_directories(three_way_macos PRIVATE src src/dspeq)
 target_include_directories(play_macos PRIVATE src src/dspeq)
+target_include_directories(main_uac2_srv PRIVATE src src/dspeq)
 target_include_directories(play_mcu PRIVATE src src/dspeq)
 target_include_directories(verify_eq_gain PRIVATE src src/dspeq)
 target_include_directories(verify_eq_taps PRIVATE src src/dspeq)
@@ -162,6 +227,7 @@ if(PLAY_USE_CMSIS_DSP)
     set(DISABLEFLOAT16 ON CACHE BOOL "Disable float16 kernels" FORCE)
     add_subdirectory(${CMSIS_DSP_DIR} ${CMAKE_BINARY_DIR}/cmsis-dsp)
     target_link_libraries(play_macos PRIVATE CMSISDSP)
+    target_link_libraries(main_uac2_srv PRIVATE CMSISDSP)
     target_link_libraries(play_mcu PRIVATE CMSISDSP)
     target_link_libraries(verify_eq_gain PRIVATE CMSISDSP)
     target_link_libraries(verify_eq_taps PRIVATE CMSISDSP)
@@ -169,6 +235,7 @@ if(PLAY_USE_CMSIS_DSP)
     target_link_libraries(verify_eq_low_seq PRIVATE CMSISDSP)
     target_link_libraries(test_eq_linear PRIVATE CMSISDSP)
     target_compile_definitions(play_macos PRIVATE USE_CMSIS_DSP=1)
+    target_compile_definitions(main_uac2_srv PRIVATE USE_CMSIS_DSP=1)
     target_compile_definitions(play_mcu PRIVATE USE_CMSIS_DSP=1)
     target_compile_definitions(verify_eq_gain PRIVATE USE_CMSIS_DSP=1)
     target_compile_definitions(verify_eq_taps PRIVATE USE_CMSIS_DSP=1)
@@ -190,8 +257,12 @@ if(APPLE)
   target_link_libraries(
     play_macos PRIVATE "-framework CoreAudio" "-framework CoreFoundation"
                        "-framework AudioToolbox")
+  target_link_libraries(
+    main_uac2_srv PRIVATE "-framework CoreAudio" "-framework CoreFoundation"
+                         "-framework AudioToolbox")
 elseif(UNIX)
   target_link_libraries(play_macos PRIVATE pthread m dl)
+  target_link_libraries(main_uac2_srv PRIVATE pthread m dl)
 endif()
 
 if(APPLE)
@@ -229,6 +300,7 @@ endif()
 target_compile_options(miniaudiodemo PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(three_way_macos PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(play_macos PRIVATE -Wall -Wno-unused-parameter)
+target_compile_options(main_uac2_srv PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(play_mcu PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(verify_eq_gain PRIVATE -Wall -Wno-unused-parameter)
 target_compile_options(verify_eq_taps PRIVATE -Wall -Wno-unused-parameter)

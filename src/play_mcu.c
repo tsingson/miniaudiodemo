@@ -1,4 +1,6 @@
 #include "play_dsp_common.h"
+#include "play_audio_pipeline.h"
+#include "pcm5102a_audio.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -12,14 +14,12 @@
  * Keep large DSP working buffers in static storage for MCU targets.
  * This avoids early stack overflow in main() on small embedded stacks.
  */
-static play_dsp_state g_dsp;
 static float g_audioBlock[MCU_BLOCK_FRAMES * MCU_CHANNELS];
-static float g_planarStorage[MAX_CHANNELS][MCU_BLOCK_FRAMES];
-static float* g_planarPtrs[MAX_CHANNELS] = {g_planarStorage[0], g_planarStorage[1]};
 static float g_gains[EQ_BANDS];
 static float g_qs[EQ_BANDS];
 static float g_prevGains[EQ_BANDS];
 static float g_prevQs[EQ_BANDS];
+static play_audio_pipeline g_pipeline;
 
 __attribute__ ((weak)) uint32_t play_mcu_read_frames(float* interleavedOut, uint32_t maxFrames)
 {
@@ -49,7 +49,10 @@ int main(void)
 {
     int eqInitialized = 0;
 
-    if (play_dsp_init(&g_dsp, MCU_SAMPLE_RATE, MCU_CHANNELS) != 0)
+    if (play_audio_pipeline_init(&g_pipeline, MCU_SAMPLE_RATE, MCU_CHANNELS) != 0 ||
+        play_audio_pipeline_add_dsp(&g_pipeline) != 0 ||
+        play_audio_pipeline_add_output(&g_pipeline, "pcm5102a", NULL,
+                                       pcm5102a_audio_output_stage) != 0)
     {
         return -1;
     }
@@ -83,7 +86,7 @@ int main(void)
 
             if (changed)
             {
-                play_dsp_set_eq_params(&g_dsp, g_gains, EQ_BANDS, g_qs, EQ_BANDS);
+                play_dsp_set_eq_params(&g_pipeline.dsp, g_gains, EQ_BANDS, g_qs, EQ_BANDS);
                 memcpy(g_prevGains, g_gains, sizeof(g_prevGains));
                 memcpy(g_prevQs, g_qs, sizeof(g_prevQs));
                 eqInitialized = 1;
@@ -92,25 +95,7 @@ int main(void)
 
         if (frames > 0)
         {
-            for (uint32_t i = 0; i < frames; ++i)
-            {
-                for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
-                {
-                    g_planarStorage[ch][i] = g_audioBlock[i * MCU_CHANNELS + ch];
-                }
-            }
-
-            play_dsp_process_planar(&g_dsp, g_planarPtrs, frames, MCU_CHANNELS);
-
-            for (uint32_t i = 0; i < frames; ++i)
-            {
-                for (uint32_t ch = 0; ch < MCU_CHANNELS; ++ch)
-                {
-                    g_audioBlock[i * MCU_CHANNELS + ch] = g_planarStorage[ch][i];
-                }
-            }
-
-            play_mcu_write_frames(g_audioBlock, frames);
+            (void)play_audio_pipeline_process(&g_pipeline, g_audioBlock, frames);
         }
     }
 }

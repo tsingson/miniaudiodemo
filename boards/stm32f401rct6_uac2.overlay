@@ -1,0 +1,8 @@
+#include "stm32f401rct6.overlay"
+
+/ {
+	chosen {
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+	};
+};

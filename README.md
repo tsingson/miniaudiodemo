@@ -10,6 +10,9 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 
 STM32F401 调试串口与 ST7735S 英文显示的独立说明见：[docs/stm32f401_debug_display.md](docs/stm32f401_debug_display.md)。默认构建为调试模式，使用 USB CDC ACM；生产模式关闭日志、控制台和串口，但保留显示/音频驱动。
 PCM5102A 调试过程、故障现象与最终三线 I2S 配置见：[pcm5102a_dev_log.md](pcm5102a_dev_log.md)。
+macOS UAC2 到 STM32F401/PCM5102A 的架构、当前实现状态和后续协议工作见：[uac2_pcm5102_macos_dev_log.md](uac2_pcm5102_macos_dev_log.md)。
+
+UAC2 快捷命令：`./r.sh build-uac2-macos` 构建 macOS sender，`UAC2_DEVICE_NAME="STM32" ./r.sh run-uac2-macos` 运行 sender，`./r.sh build-uac2-stm32` / `./r.sh flash-uac2-stm32` 构建和烧录 STM32 receiver。
 
 USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_prod.conf`，关闭日志、控制台和 USB CDC。
 

@@ -8,6 +8,8 @@
 
 #include "audio_3_wav_data.h"
 #include "st7735s_log_display.h"
+#include "play_audio_pipeline.h"
+#include "pcm5102a_audio.h"
 
 LOG_MODULE_REGISTER(main_pcm5102_st7735s, LOG_LEVEL_INF);
 
@@ -15,9 +17,6 @@ LOG_MODULE_REGISTER(main_pcm5102_st7735s, LOG_LEVEL_INF);
 #define OUT_CHANNELS 2U
 #define OUT_BLOCK_FRAMES 128U
 #define PLAYBACK_GAIN 0.35f
-
-void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount);
-int play_mcu_pcm5102a_init(void);
 
 static bool g_lcd_ready;
 
@@ -146,6 +145,7 @@ int main(void)
     uint64_t phase_q32 = 0U;
     uint64_t step_q32;
     char line[48];
+    play_audio_pipeline pipeline;
 
     if (st7735s_log_display_init() == 0) {
         g_lcd_ready = true;
@@ -163,7 +163,11 @@ int main(void)
     log_key("PCM5102A start");
     (void)snprintf(line, sizeof(line), "wav: %uHz ch=%u", (unsigned int)wav.sample_rate, (unsigned int)wav.channels);
     log_key(line);
-    if (play_mcu_pcm5102a_init() != 0) {
+    if (pcm5102a_audio_init() != 0 ||
+        play_audio_pipeline_init(&pipeline, OUT_SAMPLE_RATE, OUT_CHANNELS) != 0 ||
+        play_audio_pipeline_add_dsp(&pipeline) != 0 ||
+        play_audio_pipeline_add_output(&pipeline, "pcm5102a", NULL,
+                                       pcm5102a_audio_output_stage) != 0) {
         log_key("PCM5102A I2S init failed");
         while (1) {
             k_sleep(K_MSEC(1000));
@@ -174,6 +178,6 @@ int main(void)
 
     while (1) {
         fill_output_from_wav(block, OUT_BLOCK_FRAMES, &wav, &phase_q32, step_q32);
-        play_mcu_write_frames(block, OUT_BLOCK_FRAMES);
+        (void)play_audio_pipeline_process(&pipeline, block, OUT_BLOCK_FRAMES);
     }
 }

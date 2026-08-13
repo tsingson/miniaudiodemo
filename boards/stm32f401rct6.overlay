@@ -3,7 +3,45 @@
  * Build with: west build -b nucleo_f401re . -- -DDTC_OVERLAY_FILE=boards/stm32f401rct6.overlay
  */
 
+#include <zephyr/dt-bindings/usb/audio.h>
+
 / {
+	uac2_audio: usb_audio2 {
+		compatible = "zephyr,uac2";
+		status = "okay";
+		full-speed;
+		audio-function = <AUDIO_FUNCTION_OTHER>;
+
+		uac2_clock: clock-source {
+			compatible = "zephyr,uac2-clock-source";
+			clock-type = "internal-programmable";
+			frequency-control = "host-programmable";
+			sampling-frequencies = <48000>;
+		};
+
+		uac2_input: usb-input-terminal {
+			compatible = "zephyr,uac2-input-terminal";
+			clock-source = <&uac2_clock>;
+			terminal-type = <USB_TERMINAL_STREAMING>;
+			front-left;
+			front-right;
+		};
+
+		uac2_output: pcm5102a-output-terminal {
+			compatible = "zephyr,uac2-output-terminal";
+			data-source = <&uac2_input>;
+			clock-source = <&uac2_clock>;
+			terminal-type = <OUTPUT_TERMINAL_HEADPHONES>;
+		};
+
+		uac2_stream: audio-streaming {
+			compatible = "zephyr,uac2-audio-streaming";
+			linked-terminal = <&uac2_input>;
+			subslot-size = <2>;
+			bit-resolution = <16>;
+		};
+	};
+
 	chosen {
 		miniaudio,i2s-tx = &i2s2;
 		zephyr,console = &board_cdc_acm_uart;
@@ -51,6 +89,9 @@
 	st7735s_ctrl: st7735s-ctrl {
 		blk-gpios = <&gpiob 1 GPIO_ACTIVE_HIGH>;
 	};
+};
+
+zephyr_udc0: &usbotg_fs {
 };
 
 &usart1 {
