@@ -22,7 +22,7 @@ LOG_MODULE_REGISTER(play_mcu_zephyr, LOG_LEVEL_INF);
 #define PLAY_BYTES_PER_FRAME ((PLAY_WORD_SIZE_BITS / 8U) * PLAY_CHANNELS)
 #define PLAY_BLOCK_SIZE (PLAY_BLOCK_FRAMES * PLAY_BYTES_PER_FRAME)
 #define PLAY_I2S_SLAB_BLOCK_COUNT 12
-#define PLAY_I2S_PRIME_BLOCKS 3U
+#define PLAY_I2S_PRIME_BLOCKS 4U
 
 #define PLAY_I2S_NODE DT_CHOSEN(miniaudio_i2s_tx)
 
@@ -38,7 +38,6 @@ static bool g_i2s_ready;
 static bool g_i2s_started;
 static bool g_lcd_ready;
 static bool g_lcd_init_attempted;
-static uint32_t g_heartbeat;
 static uint32_t g_i2s_write_fail_count;
 static uint32_t g_tx_queued_before_start;
 
@@ -129,13 +128,18 @@ static int play_i2s_init(void)
 
 	g_i2s_ready = true;
 	play_i2s_reset_tx_state();
-	LOG_INF("PCM5102A I2S TX initialized @ %u Hz", PLAY_SAMPLE_RATE);
+	LOG_INF("PCM5102A I2S TX initialized @ %u Hz (DIN/BCK/LRCK)", PLAY_SAMPLE_RATE);
 	LOG_INF("I2S running with continuous BCLK/LRCLK");
 	LOG_INF("I2S block size=%u bytes, slab blocks=%u", (unsigned int)PLAY_BLOCK_SIZE, (unsigned int)PLAY_I2S_SLAB_BLOCK_COUNT);
 	if (g_lcd_ready) {
 		st7735s_log_display_line("PCM5102A ready 48k");
 	}
 	return 0;
+}
+
+int play_mcu_pcm5102a_init(void)
+{
+	return play_i2s_init();
 }
 
 uint32_t play_mcu_read_frames(float *interleavedOut, uint32_t maxFrames)
@@ -145,13 +149,6 @@ uint32_t play_mcu_read_frames(float *interleavedOut, uint32_t maxFrames)
 
 	if (!g_i2s_ready) {
 		(void)play_i2s_init();
-	}
-
-	if (g_lcd_ready) {
-		++g_heartbeat;
-		if ((g_heartbeat % 1000U) == 0U) {
-			st7735s_log_display_line("Running...");
-		}
 	}
 
 	k_sleep(K_MSEC(1));
@@ -179,7 +176,7 @@ void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount)
 		frameCount = PLAY_BLOCK_FRAMES;
 	}
 
-	ret = k_mem_slab_alloc(&play_i2s_tx_slab, (void **)&tx_block, K_MSEC(100));
+	ret = k_mem_slab_alloc(&play_i2s_tx_slab, (void **)&tx_block, K_FOREVER);
 	if (ret != 0) {
 		LOG_WRN("No TX slab block: %d", ret);
 		if (g_lcd_ready) {
@@ -236,6 +233,10 @@ void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount)
 			return;
 		}
 
+		if (g_lcd_ready) {
+			st7735s_log_display_line("I2S TX queued");
+		}
+
 		ret = i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
 		if (ret != 0) {
 			LOG_WRN("i2s start failed: %d", ret);
@@ -247,9 +248,7 @@ void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount)
 		}
 		g_i2s_started = true;
 		g_tx_queued_before_start = 0U;
-		if (g_lcd_ready) {
-			st7735s_log_display_line("Audio stream started");
-		}
+		LOG_INF("PCM5102A audio stream started");
 	}
 }
 

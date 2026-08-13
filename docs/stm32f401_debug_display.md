@@ -71,6 +71,31 @@ The required device-tree contract is:
 - `st7735s_ctrl.blk-gpios` describes the backlight.
 - SPI1 and the ST7735S D/C, RESET, and CS pins match the board wiring.
 
+## 3. PCM5102A minimal I2S path
+
+The PCM entrypoint is `src/main_pcm5102_st7735s.c`. Its audio path uses the PCM5102A as an I2S receiver and uses only three digital signals:
+
+- DIN: PB15 (`I2S2_SD`)
+- BCK: PB13 (`I2S2_CK`)
+- LRCK: PB12 (`I2S2_WS`)
+
+The STM32 I2S peripheral is configured as bit-clock and frame-clock controller. The STM32F401 I2S2 audio clock is supplied by its independent PLLI2S clock path; the system clock uses HSI/PLL separately. No MCLK/SCK signal and no PCM5102A control GPIO are configured. The PCM5102A has an internal clock/PLL path for this operating mode; the firmware therefore writes standard stereo 16-bit I2S frames at 48 kHz and does not attempt to drive its other pins.
+
+The default PCM5102A control pins are intentionally left to the module hardware. This is the minimal wiring assumption and should be changed only after confirming the specific breakout board's requirements.
+
+Debug and production PCM images:
+
+```sh
+./r.sh build-pcm
+./r.sh flash-pcm
+./r.sh monitor
+
+./r.sh build-pcm-prod
+./r.sh flash-pcm-prod
+```
+
+In debug mode, all Zephyr logs go to the USB CDC serial device and the display receives only key milestones and I2S errors. In production mode, serial/log output is disabled and the display still shows the key audio milestones.
+
 Keep the lightweight renderer for STM32F401 builds to avoid pulling the larger ZPix font into the 256 KB image. The optional full font path is enabled with `-DMINIAUDIO_ST7735S_ZPIX_FONT=ON` on a target with sufficient flash.
 
 ## Regression check

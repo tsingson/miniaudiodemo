@@ -74,6 +74,8 @@
 &i2s2 {
 	pinctrl-0 = <&i2s2_ck_pb13 &i2s2_sd_pb15 &i2s2_ws_pb12>;
 	pinctrl-names = "default";
+	clocks = <&rcc STM32_CLOCK(APB1, 14)>,
+			 <&rcc STM32_SRC_PLLI2S_R I2S_SEL(0)>;
 	status = "okay";
 };
 
@@ -115,6 +117,14 @@
 	ahb-prescaler = <1>;
 	apb1-prescaler = <2>;
 	apb2-prescaler = <1>;
+};
+
+&plli2s {
+	div-m = <16>;
+	mul-n = <192>;
+	div-r = <5>;
+	clocks = <&clk_hsi>;
+	status = "okay";
 };
 
 &usbotg_fs {

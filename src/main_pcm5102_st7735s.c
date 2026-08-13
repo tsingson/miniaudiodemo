@@ -17,6 +17,7 @@ LOG_MODULE_REGISTER(main_pcm5102_st7735s, LOG_LEVEL_INF);
 #define PLAYBACK_GAIN 0.35f
 
 void play_mcu_write_frames(const float *interleavedIn, uint32_t frameCount);
+int play_mcu_pcm5102a_init(void);
 
 static bool g_lcd_ready;
 
@@ -27,7 +28,7 @@ struct wav_pcm_view {
     uint32_t sample_rate;
 };
 
-static void log_dual(const char *msg)
+static void log_key(const char *msg)
 {
     LOG_INF("%s", msg);
     if (g_lcd_ready) {
@@ -144,7 +145,6 @@ int main(void)
     struct wav_pcm_view wav;
     uint64_t phase_q32 = 0U;
     uint64_t step_q32;
-    uint32_t blockCount = 0U;
     char line[48];
 
     if (st7735s_log_display_init() == 0) {
@@ -152,7 +152,7 @@ int main(void)
     }
 
     if (parse_wav_pcm16_stereo_or_mono(&wav) != 0) {
-        log_dual("3.wav parse failed");
+        log_key("3.wav parse failed");
         while (1) {
             k_sleep(K_MSEC(1000));
         }
@@ -160,18 +160,20 @@ int main(void)
 
     step_q32 = ((uint64_t)wav.sample_rate << 32) / OUT_SAMPLE_RATE;
 
-    log_dual("pcm5102+st7735s start");
+    log_key("PCM5102A start");
     (void)snprintf(line, sizeof(line), "wav: %uHz ch=%u", (unsigned int)wav.sample_rate, (unsigned int)wav.channels);
-    log_dual(line);
-    log_dual("playback: loop 3.wav");
+    log_key(line);
+    if (play_mcu_pcm5102a_init() != 0) {
+        log_key("PCM5102A I2S init failed");
+        while (1) {
+            k_sleep(K_MSEC(1000));
+        }
+    }
+
+    log_key("PCM5102A ready");
 
     while (1) {
         fill_output_from_wav(block, OUT_BLOCK_FRAMES, &wav, &phase_q32, step_q32);
         play_mcu_write_frames(block, OUT_BLOCK_FRAMES);
-        ++blockCount;
-
-        if ((blockCount % 2000U) == 0U) {
-            log_dual("wav looping...");
-        }
     }
 }

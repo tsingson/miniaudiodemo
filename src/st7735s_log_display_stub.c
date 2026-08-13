@@ -201,6 +201,10 @@ static int draw_glyph(uint16_t x, uint16_t y, const struct glyph5x7 *glyph)
  */
 int st7735s_log_display_init(void)
 {
+    if (g_ready) {
+        return 0;
+    }
+
 #if DT_HAS_CHOSEN(zephyr_display)
     g_display = DEVICE_DT_GET(APP_DISPLAY_NODE);
 #else

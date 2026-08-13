@@ -9,6 +9,7 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 断电后, 按 boot0 上电 后 0.5秒松开 boot0
 
 STM32F401 调试串口与 ST7735S 英文显示的独立说明见：[docs/stm32f401_debug_display.md](docs/stm32f401_debug_display.md)。默认构建为调试模式，使用 USB CDC ACM；生产模式关闭日志、控制台和串口，但保留显示/音频驱动。
+PCM5102A 调试过程、故障现象与最终三线 I2S 配置见：[pcm5102a_dev_log.md](pcm5102a_dev_log.md)。
 
 USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_prod.conf`，关闭日志、控制台和 USB CDC。
 
@@ -16,9 +17,9 @@ USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_
 
 ## 音频 codec
 
-zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lck / vin / gnd, 及 FLT / demp / xsmt / FMT / a3v3 / agnd / rout / agnd / lrout 引脚, 另有 line out 接口。
+zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lrck / vin / gnd, 及 FLT / demp / xsmt / FMT / a3v3 / agnd / rout / agnd / lrout 引脚, 另有 line out 接口。
 
-当前工程已配置为使用 `src/play_mcu.c` 作为入口，并通过 `src/play_mcu_zephyr_pcm5102.c` 提供 Zephyr I2S/GPIO 适配。
+PCM5102A + ST7735S 当前入口为 `src/main_pcm5102_st7735s.c`，音频发送由 `src/play_mcu_zephyr_pcm5102.c` 提供 Zephyr I2S 适配。
 
 ### Zephyr 编译（已验证可通过）
 
@@ -38,7 +39,7 @@ west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -D
 west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6-pcm5102-st7735s --pristine -- -DMINIAUDIO_PCM5102_ST7735S_MAIN=ON
 ```
 
-当前该入口已改为内嵌并循环播放 `./3.wav`（WAV PCM16，支持 mono/stereo；若源采样率不是 48kHz，会在固件内按最近邻方式重采样到 48kHz 输出）。
+当前该入口已改为内嵌并循环播放 `./3.wav` 到 PCM5102A（WAV PCM16，支持 mono/stereo；若源采样率不是 48kHz，会在固件内按最近邻方式重采样到 48kHz 输出）。I2S 仅使用 DIN/BCK/LRCK 三根线，不配置 MCLK 或 PCM5102A 控制 GPIO。
 
 若做 STM32H7B0VBT6 串口对比测试入口（`src/main_stm32h7b0vbt6.c`，打印 `hello copilot`）：
 
@@ -88,6 +89,8 @@ if (st7735s_log_display_init() == 0) {
 ./r.sh build-pcm  # 编译 PCM5102+ST7735S 规则噪音入口（src/main_pcm5102_st7735s.c）
 ./r.sh flash-pcm  # 烧录 PCM5102+ST7735S 规则噪音固件
 ./r.sh all-pcm    # 编译 + 烧录 PCM5102+ST7735S + 串口监测
+./r.sh build-pcm-prod # 编译 PCM5102A+ST7735S 生产固件
+./r.sh flash-pcm-prod # 烧录 PCM5102A+ST7735S 生产固件
 ./r.sh clean      # 清理 ./build-zephyr-f401rct6 临时目录
 ```
 
@@ -101,14 +104,14 @@ if (st7735s_log_display_init() == 0) {
 
 - I2S2_CK(PCM5102A BCK): PB13
 - I2S2_SD(PCM5102A DIN): PB15
-- I2S2_WS(PCM5102A LCK): PB12
+- I2S2_WS(PCM5102A LRCK): PB12
 - FLT: PA0
 - DEMP: PA1
 - XSMT: PA4
 - FMT: PA8
 
 说明：
-- 你的板子未给出 PC6，可不接 PCM5102A 的 SCK(MCLK)，当前按 3 线 I2S 运行（BCK/LCK/DIN）。
+- 你的板子未给出 PC6，可不接 PCM5102A 的 SCK(MCLK)，当前按 3 线 I2S 运行（BCK/LRCK/DIN）。
 - VIN/GND/A3V3/AGND/ROUT/LROUT/Line Out 为模拟/电源连线，不在 DTS 中以数字外设配置。
 - PCM5102 控制脚默认电平：`FLT=1(低延迟)`、`DEMP=0(关闭去加重)`、`FMT=0(I2S)`、`XSMT=1(取消静音)`。
 
@@ -160,16 +163,11 @@ if (st7735s_log_display_init() == 0) {
 ### 音频输出（PCM5102A, I2S2 3线）
 
 - PB13: I2S2_CK -> PCM5102A BCK
-- PB12: I2S2_WS -> PCM5102A LCK
+- PB12: I2S2_WS -> PCM5102A LRCK
 - PB15: I2S2_SD -> PCM5102A DIN
 - PA0: FLT 控制
 - PA1: DEMP 控制
 - PA4: XSMT 控制
-- PA8: FMT 控制
-
-### 显示屏（ST7735S, SPI1）
-
-- PA5: SCL (SPI1_SCK)
 - PA7: SDA (SPI1_MOSI)
 - PA6: RES (ST7735S_RST)
 - PA2: DC (ST7735S_DC)
