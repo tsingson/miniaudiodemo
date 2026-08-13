@@ -98,6 +98,13 @@ int main(void)
     }
     ret = pcm5102a_audio_init();
     if (ret == 0) ret = play_audio_pipeline_init(&pipeline, TEST_RATE, TEST_CHANNELS);
+    if (ret == 0) {
+        for (uint32_t plugin = 0U; plugin < PLAY_PLUGIN_SLOT_COUNT; ++plugin) {
+            pipeline.dsp.pluginSlots[plugin].enabled = 0U;
+        }
+        pipeline.dsp.pluginSlots[PLAY_PLUGIN_EQ_CORE].enabled = 1U;
+    }
+    if (ret == 0) ret = play_audio_pipeline_add_dsp(&pipeline);
     if (ret == 0) ret = play_audio_pipeline_add_output(&pipeline, "pcm5102a", NULL,
                                                        pcm5102a_audio_output_stage);
     if (ret != 0) {
@@ -107,7 +114,7 @@ int main(void)
     }
 
     LOG_INF("WAV source: 440 Hz PCM16 stereo 48 kHz");
-    st7735s_log_display_line("WAV 440Hz 48k");
+    st7735s_log_display_line("WAV EQ 440Hz");
     st7735s_log_display_line("I2S running");
     while (1) {
         fill_block(block, &wav, &position);
