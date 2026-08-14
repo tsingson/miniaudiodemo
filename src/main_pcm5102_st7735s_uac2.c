@@ -244,6 +244,8 @@ int main(void)
                 uint32_t audio_out_delivered = 0U;
                 uint32_t slab_min = 0U;
                 uint32_t slab_max = 0U;
+                int32_t fb_fill_min = 0;
+                int32_t fb_fill_max = 0;
                 usb_uac2_get_stats(&packets, &bytes, &frames,
                            &buf_requests, &buf_rejects, &zero_packets,
                            &invalid_packets, &odd_byte_packets, &checksum);
@@ -252,12 +254,14 @@ int main(void)
                 audio_out_delivered = play_pipeline_async_get_delivered(&audio_out_async);
                 pcm5102a_audio_sample_slab_range(&slab_min, &slab_max);
 #endif
+                usb_uac2_sample_feedback_fill_range(&fb_fill_min, &fb_fill_max);
             {
-                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u out_delivered=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u fb_adj=%d slab_min=%u slab_max=%u",
+                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u out_delivered=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u fb_adj=%d fb_calls=%u fb_fill_min=%d fb_fill_max=%d slab_min=%u slab_max=%u",
                     packets, bytes, frames, audio_out_delivered, buf_requests,
                     buf_rejects, zero_packets, invalid_packets, odd_byte_packets, checksum,
                     pipeline_processed, pipeline_failed, usb_uac2_get_audio_out_dropped(),
-                    usb_uac2_get_feedback_adjust(), slab_min, slab_max);
+                    usb_uac2_get_feedback_adjust(), usb_uac2_get_feedback_call_count(),
+                    fb_fill_min, fb_fill_max, slab_min, slab_max);
                 last_packets = packets;
                 last_frames = frames;
                 last_invalid_packets = invalid_packets;

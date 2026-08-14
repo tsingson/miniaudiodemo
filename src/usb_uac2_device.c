@@ -51,6 +51,9 @@ static usb_uac2_audio_sink_fn g_audio_sink;
 static void *g_audio_sink_ctx;
 static usb_uac2_fill_query_fn g_feedback_query;
 static void *g_feedback_query_ctx;
+static atomic_t g_feedback_calls;
+static atomic_t g_feedback_fill_min = ATOMIC_INIT(1000);
+static atomic_t g_feedback_fill_max;
 
 USBD_DEVICE_DEFINE(uac2_device,
            DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
@@ -240,7 +243,14 @@ static uint32_t uac2_feedback_cb(const struct device *dev, uint8_t terminal,
     if (g_feedback_query == NULL) {
         return UAC2_FS_FEEDBACK;
     }
+    atomic_inc(&g_feedback_calls);
     fill = (int32_t)g_feedback_query(g_feedback_query_ctx);
+    if (fill < atomic_get(&g_feedback_fill_min)) {
+        atomic_set(&g_feedback_fill_min, fill);
+    }
+    if (fill > atomic_get(&g_feedback_fill_max)) {
+        atomic_set(&g_feedback_fill_max, fill);
+    }
     error = UAC2_FB_TARGET_PERMILLE - fill;
 
     g_fb_adjust += (error * UAC2_FB_GAIN) / UAC2_FB_TARGET_PERMILLE;
@@ -256,6 +266,19 @@ static uint32_t uac2_feedback_cb(const struct device *dev, uint8_t terminal,
 int32_t usb_uac2_get_feedback_adjust(void)
 {
     return g_fb_adjust;
+}
+
+uint32_t usb_uac2_get_feedback_call_count(void)
+{
+    return (uint32_t)atomic_get(&g_feedback_calls);
+}
+
+void usb_uac2_sample_feedback_fill_range(int32_t *min_fill, int32_t *max_fill)
+{
+    if (min_fill != NULL) *min_fill = (int32_t)atomic_get(&g_feedback_fill_min);
+    if (max_fill != NULL) *max_fill = (int32_t)atomic_get(&g_feedback_fill_max);
+    atomic_set(&g_feedback_fill_min, 1000);
+    atomic_set(&g_feedback_fill_max, 0);
 }
 
 static const struct uac2_ops uac2_ops = {

@@ -17,11 +17,25 @@ LOG_MODULE_REGISTER(pcm5102a_audio, LOG_LEVEL_INF);
 #define PCM_SAMPLE_RATE 48000U
 #define PCM_CHANNELS 2U
 #define PCM_WORD_SIZE_BITS 16U
-#define PCM_BLOCK_FRAMES 512U
+/* 128 frames matches what every real-time caller (UAC2, play_mcu,
+ * main_pcm5102_st7735s) already feeds per call; a smaller block shrinks the
+ * accumulator below 4x, and the freed RAM is reinvested into a deeper
+ * PCM_SLAB_BLOCK_COUNT for more underrun tolerance at the same total budget
+ * (main_pcm5102a_test.c still works via pcm5102a_audio_output_stage()'s
+ * general chunking loop, even though it feeds 512-frame blocks).
+ */
+#define PCM_BLOCK_FRAMES 128U
 #define PCM_BYTES_PER_FRAME ((PCM_WORD_SIZE_BITS / 8U) * PCM_CHANNELS)
 #define PCM_BLOCK_SIZE (PCM_BLOCK_FRAMES * PCM_BYTES_PER_FRAME)
-#define PCM_SLAB_BLOCK_COUNT 4U
-#define PCM_PRIME_BLOCKS 4U
+#define PCM_SLAB_BLOCK_COUNT 20U
+/* Must stay below CONFIG_I2S_STM32_TX_BLOCK_COUNT (12, see prj.conf): priming
+ * calls i2s_write() before I2S_TRIGGER_START, so nothing drains the
+ * underlying i2s_stm32 driver's own TX queue yet. Priming past its depth
+ * deadlocks every write from block 13 onward (blocks for the full
+ * i2s_config.timeout, then fails with -EAGAIN) since DMA never starts to
+ * free up space -- this silently prevented playback from ever starting.
+ */
+#define PCM_PRIME_BLOCKS 8U
 #define PCM_I2S_NODE DT_CHOSEN(miniaudio_i2s_tx)
 
 #if !DT_NODE_HAS_STATUS(PCM_I2S_NODE, okay)
@@ -216,36 +230,56 @@ void pcm5102a_audio_write_pcm16(const int16_t *interleaved, uint32_t frames)
 int pcm5102a_audio_output_stage(void *ctx, play_frame_block *block)
 {
     uint32_t frames;
+    uint32_t offset = 0U;
+    bool planar;
 
     if (block == NULL || block->channels != 2U || block->sampleRate != PCM_SAMPLE_RATE) {
         return -EINVAL;
     }
     (void)ctx;
-    if (block->frameCount > PCM_BLOCK_FRAMES || block->planar == NULL ||
-        block->planar[0] == NULL || block->planar[1] == NULL) {
-        if (block->layout != PLAY_BUFFER_LAYOUT_INTERLEAVED ||
-            block->frameCount > PCM_BLOCK_FRAMES || block->interleaved == NULL) {
+
+    planar = (block->layout == PLAY_BUFFER_LAYOUT_PLANAR);
+    if (planar) {
+        if (block->planar == NULL || block->planar[0] == NULL || block->planar[1] == NULL) {
             return -EINVAL;
         }
-    }
-
-    frames = block->frameCount;
-    if (block->layout == PLAY_BUFFER_LAYOUT_INTERLEAVED) {
-        memcpy(&g_output_accumulator[g_output_accumulated_frames * PCM_CHANNELS],
-               block->interleaved, frames * PCM_CHANNELS * sizeof(float));
-    } else {
-        for (uint32_t frame = 0U; frame < frames; ++frame) {
-            g_output_accumulator[(g_output_accumulated_frames + frame) * PCM_CHANNELS] =
-                block->planar[0][frame];
-            g_output_accumulator[(g_output_accumulated_frames + frame) * PCM_CHANNELS + 1U] =
-                block->planar[1][frame];
+    } else if (block->layout == PLAY_BUFFER_LAYOUT_INTERLEAVED) {
+        if (block->interleaved == NULL) {
+            return -EINVAL;
         }
+    } else {
+        return -EINVAL;
     }
 
-    g_output_accumulated_frames += frames;
-    if (g_output_accumulated_frames == PCM_BLOCK_FRAMES) {
-        pcm5102a_audio_write_float(g_output_accumulator, PCM_BLOCK_FRAMES);
-        g_output_accumulated_frames = 0U;
+    /* Chunk into PCM_BLOCK_FRAMES pieces rather than requiring frameCount to
+     * fit in one go: callers feed different granularities (UAC2/play_mcu use
+     * 128 frames, main_pcm5102a_test.c uses 512), and this stays correct
+     * either way instead of assuming a single accumulate-then-flush.
+     */
+    frames = block->frameCount;
+    while (offset < frames) {
+        uint32_t space = PCM_BLOCK_FRAMES - g_output_accumulated_frames;
+        uint32_t chunk = (frames - offset) < space ? (frames - offset) : space;
+
+        if (planar) {
+            for (uint32_t i = 0U; i < chunk; ++i) {
+                g_output_accumulator[(g_output_accumulated_frames + i) * PCM_CHANNELS] =
+                    block->planar[0][offset + i];
+                g_output_accumulator[(g_output_accumulated_frames + i) * PCM_CHANNELS + 1U] =
+                    block->planar[1][offset + i];
+            }
+        } else {
+            memcpy(&g_output_accumulator[g_output_accumulated_frames * PCM_CHANNELS],
+                   &block->interleaved[offset * PCM_CHANNELS],
+                   (size_t)chunk * PCM_CHANNELS * sizeof(float));
+        }
+
+        g_output_accumulated_frames += chunk;
+        offset += chunk;
+        if (g_output_accumulated_frames == PCM_BLOCK_FRAMES) {
+            pcm5102a_audio_write_float(g_output_accumulator, PCM_BLOCK_FRAMES);
+            g_output_accumulated_frames = 0U;
+        }
     }
     return 0;
 }

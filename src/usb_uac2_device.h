@@ -29,5 +29,7 @@ bool usb_uac2_first_packet_seen(void);
 uint32_t usb_uac2_get_release_count(void);
 uint32_t usb_uac2_get_audio_out_dropped(void);
 int32_t usb_uac2_get_feedback_adjust(void);
+uint32_t usb_uac2_get_feedback_call_count(void);
+void usb_uac2_sample_feedback_fill_range(int32_t *min_fill, int32_t *max_fill);
 
 #endif
