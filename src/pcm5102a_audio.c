@@ -113,7 +113,12 @@ static void write_float_unlocked(const float *interleaved, uint32_t frames)
     if (frames > PCM_BLOCK_FRAMES) {
         frames = PCM_BLOCK_FRAMES;
     }
-    ret = k_mem_slab_alloc(&pcm_tx_slab, (void **)&tx_block, K_FOREVER);
+    /* Bounded wait: this runs on the UAC2/UDC callback path, so an indefinite
+     * K_FOREVER here would stall USB packet reception whenever I2S/DMA drains
+     * slower than the incoming stream, causing audible glitches synced to
+     * playback content. Drop the block instead of blocking the USB thread.
+     */
+    ret = k_mem_slab_alloc(&pcm_tx_slab, (void **)&tx_block, K_MSEC(2));
     if (ret != 0) {
         g_write_errors++;
         LOG_WRN("PCM5102A TX slab allocation failed: %d", ret);

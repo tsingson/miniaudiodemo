@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "play_pipeline.h"
+#include "dspeq/play_pipeline.h"
 
 #if defined(USE_CMSIS_DSP) || defined(CONFIG_CMSIS_DSP)
 #include <arm_math.h>

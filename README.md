@@ -94,7 +94,19 @@ if (st7735s_log_display_init() == 0) {
 ./r.sh all-pcm    # 编译 + 烧录 PCM5102+ST7735S + 串口监测
 ./r.sh build-pcm-prod # 编译 PCM5102A+ST7735S 生产固件
 ./r.sh flash-pcm-prod # 烧录 PCM5102A+ST7735S 生产固件
-./r.sh clean      # 清理 ./build-zephyr-f401rct6 临时目录
+./r.sh build-pcm5102a-test # 编译确定性 PCM5102A 写入测试固件（src/main_pcm5102a_test.c）
+./r.sh flash-pcm5102a-test # 烧录确定性 PCM5102A 写入测试固件
+./r.sh build-uac2-macos # 编译 macOS UAC2 sender（src/main_uac2_srv.c）
+./r.sh run-uac2-macos   # 运行 macOS UAC2 sender（设置 UAC2_DEVICE_NAME）
+./r.sh build-uac2-stm32 # 编译 STM32 原生 Zephyr UAC2 receiver + PCM5102A + ST7735S
+./r.sh flash-uac2-stm32 # 烧录 STM32 UAC2 receiver 固件
+./r.sh build-uac2-null  # 编译 UAC2 协议测试固件（不带 PCM5102A 输出）
+./r.sh flash-uac2-null  # 烧录 UAC2 协议测试固件
+./r.sh build-uac2-null-implicit # 编译 UAC2 隐式反馈 null-sink 固件
+./r.sh flash-uac2-null-implicit # 烧录 UAC2 隐式反馈 null-sink 固件
+./r.sh build-uac2-stm32-prod # 编译 STM32 UAC2 生产固件
+./r.sh flash-uac2-stm32-prod # 烧录 STM32 UAC2 生产固件
+./r.sh clean      # 清理 build/demo/demo-prod/pcm/pcm-prod 临时构建目录
 ```
 
 避免烧错固件：
@@ -102,6 +114,9 @@ if (st7735s_log_display_init() == 0) {
 - `build-demo/flash-demo/all-demo` 使用 ST7735S 演示入口（`src/main_st7735s.c`）。
 - 默认 `prj.conf` 是调试模式；生产模式使用 `prj_prod.conf`。
 - `build-pcm/flash-pcm/all-pcm` 使用 PCM5102+ST7735S 规则噪音入口（`src/main_pcm5102_st7735s.c`）。
+- `build-pcm5102a-test/flash-pcm5102a-test` 使用确定性 PCM16/48kHz 写入测试入口，不带 DSP 管线。
+- `build-uac2-stm32(-prod)/build-uac2-null(-implicit)` 均使用原生 Zephyr `zephyr,uac2` 接收入口（`src/main_pcm5102_st7735s_uac2.c` + `src/usb_uac2_device.c`）；项目已不再包含任何 TinyUSB 代码路径。
+- `clean` 只清理 `build/demo/demo-prod/pcm/pcm-prod` 五个目录，不清理 UAC2/PCM5102A 测试/macOS 相关构建目录，需要时手动 `rm -rf build-zephyr-f401rct6-uac2*  build-zephyr-f401rct6-pcm5102a-test build-macos-uac2`。
 
 ### 当前 I2S/控制脚映射
 

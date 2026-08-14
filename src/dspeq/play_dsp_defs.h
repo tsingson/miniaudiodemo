@@ -1,7 +1,9 @@
 #ifndef PLAY_DSP_DEFS_H
 #define PLAY_DSP_DEFS_H
 
+#ifndef ANALYZER_WINDOW
 #define ANALYZER_WINDOW 512
+#endif
 #define ANALYZER_BINS 48
 #define MAX_CHANNELS 2
 #define EQ_BANDS 16

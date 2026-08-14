@@ -18,5 +18,7 @@ void usb_uac2_get_stats(uint32_t *packets, uint32_t *bytes,
 						uint32_t *zero_packets, uint32_t *invalid_packets,
 						uint32_t *odd_byte_packets, uint32_t *checksum);
 bool usb_uac2_first_packet_seen(void);
+uint32_t usb_uac2_get_release_count(void);
+uint32_t usb_uac2_get_audio_out_dropped(void);
 
 #endif

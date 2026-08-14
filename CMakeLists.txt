@@ -10,51 +10,10 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   option(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN "Use UAC2 receiver + PCM5102A + ST7735S entry" OFF)
   option(MINIAUDIO_PCM5102A_TEST_MAIN "Use deterministic PCM5102A writer test entry" OFF)
   option(MINIAUDIO_UAC2_NULL_SINK "Build UAC2 protocol test without PCM output" OFF)
-  option(MINIAUDIO_TINYUSB_UAC2_MAIN "Use standalone TinyUSB UAC2 receiver" OFF)
   option(MINIAUDIO_I2S_MAIN "Use direct PCM5102 I2S WAV playback entry" OFF)
   option(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN "Use minimal STM32H7B0VBT6 hello-serial demo entry" OFF)
 
-  if(MINIAUDIO_TINYUSB_UAC2_MAIN)
-    target_sources(app PRIVATE
-      src/main_pcm5102_st7735s_uac2.c
-      src/tinyusb_uac2_device.c
-      src/tinyusb_dwc2_zephyr.c
-      src/pcm5102a_audio.c
-      src/play_audio_pipeline.c
-      src/play_pipeline_fanout.c
-      src/play_pipeline_mix.c
-      src/dspeq/play_dsp_common.c
-      src/dspeq/play_dsp_plugins.c
-      src/dspeq/play_eq_runtime.c
-      src/dspeq/eq_low_seq.c
-      src/dspeq/play_pipeline.c
-      src/dspeq/play_pipeline_eq_stages.c
-      src/dspeq/play_eq_linear.c
-      src/dspeq/play_eq_dynamic.c
-      src/dspeq/play_eq_normal.c
-      src/dspeq/play_multiband_dynamics.c
-      src/audio_3_wav_data.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/tusb.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/common/tusb_fifo.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/device/usbd.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/class/audio/audio_device.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2/dcd_dwc2.c
-      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2/dwc2_common.c)
-    target_compile_definitions(app PRIVATE
-      CFG_TUSB_MCU=OPT_MCU_STM32F4
-      CFG_TUSB_OS=OPT_OS_ZEPHYR
-      CFG_TUSB_RHPORT0_MODE=0x0201
-      CFG_TUSB_CONFIG_FILE=\"miniaudio_tusb_config.h\"
-      MINIAUDIO_TINYUSB_UAC2=1)
-    target_include_directories(app BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_include_directories(app PRIVATE
-      /Users/qinshen/go/zephyrproject/tinyusb/src
-      /Users/qinshen/go/zephyrproject/tinyusb/src/common
-      /Users/qinshen/go/zephyrproject/tinyusb/src/device
-      /Users/qinshen/go/zephyrproject/tinyusb/src/class/audio
-      /Users/qinshen/go/zephyrproject/tinyusb/src/portable/synopsys/dwc2
-      /Users/qinshen/go/zephyrproject/tinyusb/examples/device/cdc_uac2/src)
-  elseif(MINIAUDIO_PCM5102A_TEST_MAIN)
+  if(MINIAUDIO_PCM5102A_TEST_MAIN)
     target_sources(app PRIVATE
       src/main_pcm5102a_test.c
       src/audio_4_wav_data.c
@@ -95,7 +54,14 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_eq_normal.c
       src/dspeq/play_multiband_dynamics.c
       src/audio_3_wav_data.c
-      src/usb_uac2_device.c)
+      src/usb_uac2_device.c
+      # Vendored + patched STM32 UDC driver (see src/uac2/README.md): adds the
+      # isochronous OUT re-arm callback missing upstream (unmerged
+      # zephyr#113622), required for UAC2 playback to survive a missed frame.
+      # prj_uac2.conf sets CONFIG_UDC_STM32=n so Zephyr's own copy is not
+      # also compiled.
+      src/uac2/udc_stm32.c)
+    target_include_directories(app PRIVATE ${ZEPHYR_BASE}/drivers/usb/udc)
     if(MINIAUDIO_UAC2_NULL_SINK)
       target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_NULL_SINK=1)
     endif()
@@ -145,9 +111,7 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_multiband_dynamics.c)
   endif()
 
-  if(MINIAUDIO_TINYUSB_UAC2_MAIN)
-    target_sources(app PRIVATE src/st7735s_log_display_noop.c)
-  elseif(MINIAUDIO_ST7735S_ZPIX_FONT)
+  if(MINIAUDIO_ST7735S_ZPIX_FONT)
     target_sources(app PRIVATE
       src/st7735s_log_display.c
       src/zpix12_font_data.c)
@@ -157,6 +121,11 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   endif()
 
   target_include_directories(app PRIVATE src src/dspeq)
+  # play_dsp_state's analyzer/observer-tap buffers (4x ANALYZER_WINDOW floats)
+  # are unused telemetry on this 64KB-RAM MCU target and previously silently
+  # overflowed main()'s stack; shrink them here instead of the 512-sample
+  # default used by host builds/tests.
+  target_compile_definitions(app PRIVATE ANALYZER_WINDOW=32)
   if(MINIAUDIO_PCM5102A_TEST_MAIN)
     target_include_directories(app PRIVATE
       /Users/qinshen/go/zephyrproject/CMSIS-DSP/Include

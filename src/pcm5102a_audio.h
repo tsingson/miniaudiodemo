@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#include "play_pipeline.h"
+#include "dspeq/play_pipeline.h"
 
 int pcm5102a_audio_init(void);
 void pcm5102a_audio_write_float(const float *interleaved, uint32_t frames);

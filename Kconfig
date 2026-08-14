@@ -1,0 +1,48 @@
+# General configuration options
+#
+# Copyright (c) 2014-2015 Wind River Systems, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "Zephyr Kernel Configuration"
+
+# Re-select what CONFIG_UDC_STM32 would have selected, since prj_uac2.conf
+# sets CONFIG_UDC_STM32=n to use the vendored+patched src/uac2/udc_stm32.c
+# instead (see src/uac2/README.md). These targets have no Kconfig prompt of
+# their own, so they cannot be assigned directly from a .conf fragment; this
+# is done through `select` instead. Only active for the UAC2 build variant
+# (CONFIG_USB_DEVICE_STACK_NEXT=y + CONFIG_UDC_STM32=n); every other build in
+# this project (play_mcu.c, demo, pcm, etc.) is unaffected.
+config MINIAUDIO_UAC2_UDC_STM32_FIX
+	bool
+	default y if USB_DEVICE_STACK_NEXT && !UDC_STM32
+	select USE_STM32_LL_USB
+	select USE_STM32_HAL_PCD
+	select USE_STM32_HAL_PCD_EX
+	select UDC_DRIVER_HAS_HIGH_SPEED_SUPPORT
+	select STM32_USB_COMMON
+	select PINCTRL
+
+# These are normally declared "if UDC_STM32" in modules/Kconfig.stm32, so they
+# lose their default the moment CONFIG_UDC_STM32=n. src/uac2/udc_stm32.c still
+# references them unconditionally (for OTG FS/HS; the ST-USB-only options
+# CONFIG_UDC_STM32_STUSB_ISO_*_EP_NUM are compiled out by
+# `#if !DT_HAS_COMPAT_STATUS_OKAY(st_stm32_usb)` and are not needed here).
+# Re-supplying just the default (no re-declared prompt/type) is valid Kconfig
+# and only takes effect while the original "if UDC_STM32" block is inactive.
+if MINIAUDIO_UAC2_UDC_STM32_FIX
+
+config UDC_STM32_STACK_SIZE
+	default 512
+
+config UDC_STM32_THREAD_PRIORITY
+	default 8
+
+config UDC_STM32_MAX_QMESSAGES
+	default 8
+
+config UDC_STM32_OTG_RXFIFO_BASELINE_SIZE
+	default 600
+
+endif # MINIAUDIO_UAC2_UDC_STM32_FIX
+
+source "Kconfig.zephyr"

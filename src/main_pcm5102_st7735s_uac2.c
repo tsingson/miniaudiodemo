@@ -10,30 +10,27 @@
 #include "st7735s_log_display.h"
 #include "play_audio_pipeline.h"
 #include "pcm5102a_audio.h"
-#ifdef MINIAUDIO_TINYUSB_UAC2
-#include "tusb.h"
-#else
 #include "usb_uac2_device.h"
-#endif
 
 LOG_MODULE_REGISTER(main_pcm5102_st7735s_uac2, LOG_LEVEL_INF);
 
 #define UAC2_SAMPLE_RATE 48000U
 #define UAC2_CHANNELS 2U
 #define LOCAL_BLOCK_FRAMES 128U
-#define TINYUSB_BLOCK_FRAMES 48U
 #ifndef MINIAUDIO_UAC2_PID
 #define MINIAUDIO_UAC2_PID 0x0102
 #endif
 
 static bool g_display_ready;
 
-#ifndef MINIAUDIO_TINYUSB_UAC2
 static int pipeline_sink(void *ctx, const float *frames, uint32_t count)
 {
-    return play_audio_pipeline_process((play_audio_pipeline *)ctx, frames, count);
+    int ret = play_audio_pipeline_process((play_audio_pipeline *)ctx, frames, count);
+    if (ret != 0) {
+        LOG_WRN_ONCE("pipeline_sink first failure: ret=%d count=%u", ret, count);
+    }
+    return ret;
 }
-#endif
 
 struct local_wav_view {
     const int16_t *data;
@@ -123,7 +120,6 @@ static void fill_local_block(float *out, const struct local_wav_view *wav, uint6
     }
 }
 
-#ifndef MINIAUDIO_TINYUSB_UAC2
 static void display_uac2_status(uint32_t packets, uint32_t frames,
                                 uint32_t rate,
                                 uint32_t buf_requests, uint32_t buf_rejects,
@@ -142,10 +138,11 @@ static void display_uac2_status(uint32_t packets, uint32_t frames,
     st7735s_log_display_line(line);
     (void)snprintf(line, sizeof(line), "BUF %u/%u", buf_requests, buf_rejects);
     st7735s_log_display_line(line);
+    (void)snprintf(line, sizeof(line), "REL %u", usb_uac2_get_release_count());
+    st7735s_log_display_line(line);
     (void)snprintf(line, sizeof(line), "ERR %u/%u", invalid_packets, odd_packets);
     st7735s_log_display_line(line);
 }
-#endif
 
 int main(void)
 {
@@ -153,11 +150,6 @@ int main(void)
     struct local_wav_view local_wav;
     uint64_t local_phase = 0U;
     bool local_audio_ready;
-#ifdef MINIAUDIO_TINYUSB_UAC2
-    static int16_t usb_pcm[TINYUSB_BLOCK_FRAMES * UAC2_CHANNELS];
-    static float usb_block[TINYUSB_BLOCK_FRAMES * UAC2_CHANNELS];
-    bool usb_audio_seen = false;
-#else
     bool uac2_handover_logged = false;
     bool first_packet_logged = false;
     uint32_t last_packets = 0U;
@@ -166,8 +158,7 @@ int main(void)
     uint32_t last_odd_packets = 0U;
     int64_t last_rate_ms = 0;
     int64_t next_status_ms = 0;
-#endif
-    play_audio_pipeline pipeline;
+    static play_audio_pipeline pipeline;
     int ret;
 
     if (st7735s_log_display_init() == 0) {
@@ -202,16 +193,12 @@ int main(void)
         key_log("Local audio playback");
     }
 
-#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_TINYUSB_UAC2)
+#ifndef MINIAUDIO_UAC2_NULL_SINK
     usb_uac2_set_audio_sink(pipeline_sink, &pipeline);
-#elif !defined(MINIAUDIO_TINYUSB_UAC2)
+#else
     usb_uac2_set_audio_sink(NULL, NULL);
 #endif
-#ifdef MINIAUDIO_TINYUSB_UAC2
-    ret = tusb_init() ? 0 : -EIO;
-#else
     ret = usb_uac2_device_init(UAC2_SAMPLE_RATE, UAC2_CHANNELS, 16U);
-#endif
     if (ret != 0) {
         LOG_ERR("UAC2 device init failed: %d", ret);
         key_log("UAC2 device init failed");
@@ -221,30 +208,9 @@ int main(void)
     }
 
     key_log("UAC2 stream ready");
-#ifndef MINIAUDIO_TINYUSB_UAC2
     next_status_ms = k_uptime_get();
-#endif
 
     while (1) {
-#ifdef MINIAUDIO_TINYUSB_UAC2
-        uint32_t usb_bytes;
-        uint32_t usb_frames;
-
-        tud_task();
-        usb_bytes = tud_audio_read(usb_pcm, sizeof(usb_pcm));
-        usb_frames = usb_bytes / (sizeof(usb_pcm[0]) * UAC2_CHANNELS);
-        if (usb_frames > 0U) {
-            for (uint32_t sample = 0U; sample < usb_frames * UAC2_CHANNELS; ++sample) {
-                usb_block[sample] = (float)usb_pcm[sample] / 32768.0f;
-            }
-            (void)play_audio_pipeline_process(&pipeline, usb_block, usb_frames);
-            if (!usb_audio_seen) {
-                key_log("TinyUSB host audio");
-                usb_audio_seen = true;
-            }
-            continue;
-        }
-#else
         if (usb_uac2_stream_active() && !uac2_handover_logged) {
             key_log("UAC2 host audio");
             uac2_handover_logged = true;
@@ -264,9 +230,12 @@ int main(void)
                 uint32_t invalid_packets;
                 uint32_t odd_byte_packets;
                 uint32_t checksum;
+                uint32_t pipeline_processed;
+                uint32_t pipeline_failed;
                 usb_uac2_get_stats(&packets, &bytes, &frames, &i2s_blocks,
                            &buf_requests, &buf_rejects, &zero_packets,
                            &invalid_packets, &odd_byte_packets, &checksum);
+                play_audio_pipeline_get_stats(&pipeline, &pipeline_processed, &pipeline_failed);
             {
                 int64_t now_ms = k_uptime_get();
                 uint32_t rate = 0U;
@@ -274,9 +243,10 @@ int main(void)
                     rate = (uint32_t)(((uint64_t)(frames - last_frames) * 1000U) /
                                       (uint64_t)(now_ms - last_rate_ms));
                 }
-                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u I2S blocks=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u",
+                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u I2S blocks=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u",
                     packets, bytes, frames, i2s_blocks, buf_requests,
-                    buf_rejects, zero_packets, invalid_packets, odd_byte_packets, checksum);
+                    buf_rejects, zero_packets, invalid_packets, odd_byte_packets, checksum,
+                    pipeline_processed, pipeline_failed, usb_uac2_get_audio_out_dropped());
                 display_uac2_status(packets, frames, rate, buf_requests,
                                     buf_rejects, invalid_packets, odd_byte_packets);
                 last_packets = packets;
@@ -287,22 +257,15 @@ int main(void)
             }
             next_status_ms += 500;
         }
-        #endif
-            if (
-        #ifdef MINIAUDIO_TINYUSB_UAC2
-                !usb_audio_seen && local_audio_ready
-        #else
-                !usb_uac2_stream_active() && local_audio_ready
-        #endif
     #ifndef MINIAUDIO_UAC2_NULL_SINK
-            ) {
+        if (!usb_uac2_stream_active() && local_audio_ready) {
             fill_local_block(local_block, &local_wav, &local_phase);
             (void)play_audio_pipeline_process(&pipeline, local_block, LOCAL_BLOCK_FRAMES);
             k_sleep(K_MSEC(1));
             continue;
         }
     #else
-            && false) {
+        if (!usb_uac2_stream_active() && local_audio_ready && false) {
             continue;
         }
     #endif

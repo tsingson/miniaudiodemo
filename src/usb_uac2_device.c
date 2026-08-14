@@ -27,10 +27,22 @@ LOG_MODULE_REGISTER(usb_uac2_device, LOG_LEVEL_INF);
 
 K_MEM_SLAB_DEFINE_STATIC(uac2_rx_slab,
              ROUND_UP(UAC2_MAX_PACKET_SIZE, UDC_BUF_GRANULARITY),
-             8, UDC_BUF_ALIGN);
+             32, UDC_BUF_ALIGN);
 
 static float pending_samples[UAC2_I2S_BLOCK_FRAMES * UAC2_CHANNELS];
 static size_t pending_frames;
+
+/* I2S writes can block for a while during underrun recovery (i2s_trigger +
+ * configure_i2s()). Doing that synchronously inside the USB receive callback
+ * would delay servicing the next isochronous (micro)frame and starve the USB
+ * side further, so handoff to a dedicated consumer thread instead.
+ */
+#define AUDIO_OUT_QUEUE_DEPTH 4
+K_MSGQ_DEFINE(audio_out_msgq, sizeof(pending_samples), AUDIO_OUT_QUEUE_DEPTH, 4);
+static atomic_t g_audio_out_dropped;
+static void audio_out_thread_fn(void *p1, void *p2, void *p3);
+K_THREAD_DEFINE(audio_out_tid, 1536, audio_out_thread_fn, NULL, NULL, NULL, 6, 0, 0);
+
 static atomic_t g_uac2_stream_active;
 static atomic_t g_packet_count;
 static atomic_t g_byte_count;
@@ -38,6 +50,7 @@ static atomic_t g_frame_count;
 static atomic_t g_i2s_block_count;
 static atomic_t g_buf_requests;
 static atomic_t g_buf_rejects;
+static atomic_t g_buf_releases;
 static atomic_t g_zero_packets;
 static atomic_t g_invalid_packets;
 static atomic_t g_odd_byte_packets;
@@ -47,6 +60,22 @@ static atomic_t g_sof_seen;
 static atomic_t g_terminal_enabled;
 static usb_uac2_audio_sink_fn g_audio_sink;
 static void *g_audio_sink_ctx;
+
+static void audio_out_thread_fn(void *p1, void *p2, void *p3)
+{
+    static float block[UAC2_I2S_BLOCK_FRAMES * UAC2_CHANNELS];
+
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+    while (1) {
+        if (k_msgq_get(&audio_out_msgq, block, K_FOREVER) == 0 && g_audio_sink != NULL) {
+            if (g_audio_sink(g_audio_sink_ctx, block, UAC2_I2S_BLOCK_FRAMES) == 0) {
+                atomic_inc(&g_i2s_block_count);
+            }
+        }
+    }
+}
 
 USBD_DEVICE_DEFINE(uac2_device,
            DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
@@ -138,8 +167,16 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
         k_mem_slab_free(&uac2_rx_slab, buf);
         return;
     }
-    for (uint16_t byte = 0U; byte < size; ++byte) {
-        atomic_add(&g_checksum, ((const uint8_t *)buf)[byte]);
+    /* Local accumulate then a single atomic_add: this runs on the real-time
+     * USB receive path, and per-byte atomic ops (LDREX/STREX retry) here were
+     * adding enough overhead per packet to risk missing the next (micro)frame.
+     */
+    {
+        uint32_t sum = 0U;
+        for (uint16_t byte = 0U; byte < size; ++byte) {
+            sum += ((const uint8_t *)buf)[byte];
+        }
+        atomic_add(&g_checksum, sum);
     }
     frames = size / (sizeof(int16_t) * UAC2_CHANNELS);
     for (size_t i = 0U; i < frames; ++i) {
@@ -150,14 +187,17 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
         pending_frames++;
 
         if (pending_frames == UAC2_I2S_BLOCK_FRAMES) {
-            if (g_audio_sink != NULL &&
-                g_audio_sink(g_audio_sink_ctx, pending_samples, UAC2_I2S_BLOCK_FRAMES) == 0) {
-                atomic_inc(&g_i2s_block_count);
+            if (k_msgq_put(&audio_out_msgq, pending_samples, K_NO_WAIT) != 0) {
+                atomic_inc(&g_audio_out_dropped);
             }
             pending_frames = 0U;
         }
     }
     atomic_add(&g_frame_count, frames);
+    /* Class layer hands OUT buffer ownership to data_recv_cb (no buf_release_cb
+     * for OUT); we must return it to our own pool ourselves.
+     */
+    k_mem_slab_free(&uac2_rx_slab, buf);
 }
 
 static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
@@ -166,8 +206,19 @@ static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
     ARG_UNUSED(dev);
     ARG_UNUSED(user_data);
     if (terminal == UAC2_INPUT_TERMINAL_ID && buf != NULL) {
+        atomic_inc(&g_buf_releases);
         k_mem_slab_free(&uac2_rx_slab, buf);
     }
+}
+
+uint32_t usb_uac2_get_release_count(void)
+{
+    return (uint32_t)atomic_get(&g_buf_releases);
+}
+
+uint32_t usb_uac2_get_audio_out_dropped(void)
+{
+    return (uint32_t)atomic_get(&g_audio_out_dropped);
 }
 
 void usb_uac2_set_audio_sink(usb_uac2_audio_sink_fn sink, void *ctx)

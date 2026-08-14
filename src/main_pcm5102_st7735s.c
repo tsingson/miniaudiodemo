@@ -145,7 +145,7 @@ int main(void)
     uint64_t phase_q32 = 0U;
     uint64_t step_q32;
     char line[48];
-    play_audio_pipeline pipeline;
+    static play_audio_pipeline pipeline;
 
     if (st7735s_log_display_init() == 0) {
         g_lcd_ready = true;

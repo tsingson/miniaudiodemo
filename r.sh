@@ -39,8 +39,6 @@ Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|build-demo
     flash-uac2-null  Flash UAC2 protocol receiver without PCM5102A output
     build-uac2-null-implicit  Build UAC2 null sink with implicit feedback
     flash-uac2-null-implicit  Flash UAC2 null sink with implicit feedback
-    build-tinyusb-uac2  Build standalone TinyUSB UAC2 receiver
-    flash-tinyusb-uac2  Flash standalone TinyUSB UAC2 receiver
   flash-uac2-stm32  Flash the STM32 UAC2 receiver scaffold
   build-uac2-stm32-prod  Build the STM32 UAC2 production scaffold
   flash-uac2-stm32-prod  Flash the STM32 UAC2 production scaffold
@@ -101,10 +99,6 @@ build_uac2_null_implicit_app() {
   "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-null-implicit --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2_implicit.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_NULL_SINK=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
 }
 
-build_tinyusb_uac2_app() {
-  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-tinyusb-uac2 --pristine -- -DCONF_FILE=prj_tinyusb_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_tinyusb_uac2.overlay -DMINIAUDIO_TINYUSB_UAC2_MAIN=ON
-}
-
 build_uac2_stm32_prod_app() {
   "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-prod --pristine -- -DCONF_FILE=prj_prod.conf -DEXTRA_CONF_FILE=prj_uac2.conf -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON
 }
@@ -131,7 +125,9 @@ flash_app() {
 
   if [[ -n "$cube_cli" ]]; then
     echo "Flashing with stm32cubeprogrammer"
-    "$cube_cli" -c port=SWD -w "$build_dir/zephyr/zephyr.hex" -v -rst
+    # Universal binary: force arm64 slice, x86_64 slice crashes with
+    # "Incompatible processor... requires neon" under Rosetta on this Mac.
+    arch -arm64 "$cube_cli" -c port=SWD -w "$build_dir/zephyr/zephyr.hex" -v -rst
     return
   fi
 
@@ -322,12 +318,6 @@ main() {
       ;;
     flash-uac2-null-implicit)
       flash_app "build-zephyr-f401rct6-uac2-null-implicit"
-      ;;
-    build-tinyusb-uac2)
-      build_tinyusb_uac2_app
-      ;;
-    flash-tinyusb-uac2)
-      flash_app "build-zephyr-f401rct6-tinyusb-uac2"
       ;;
     flash-uac2-stm32)
       flash_app "build-zephyr-f401rct6-uac2"
