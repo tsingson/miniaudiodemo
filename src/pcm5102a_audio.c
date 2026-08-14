@@ -241,6 +241,16 @@ void pcm5102a_audio_get_stats(uint32_t *write_blocks, uint32_t *write_errors)
     if (write_errors != NULL) *write_errors = g_write_errors;
 }
 
+uint32_t pcm5102a_audio_get_slab_used(void)
+{
+    return (uint32_t)k_mem_slab_num_used_get(&pcm_tx_slab);
+}
+
+uint32_t pcm5102a_audio_get_slab_capacity(void)
+{
+    return (uint32_t)PCM_SLAB_BLOCK_COUNT;
+}
+
 /* Compatibility symbols for existing playback entrypoints. */
 int play_mcu_pcm5102a_init(void)
 {

@@ -31,23 +31,12 @@ K_MEM_SLAB_DEFINE_STATIC(uac2_rx_slab,
 
 static float pending_samples[UAC2_I2S_BLOCK_FRAMES * UAC2_CHANNELS];
 static size_t pending_frames;
-
-/* I2S writes can block for a while during underrun recovery (i2s_trigger +
- * configure_i2s()). Doing that synchronously inside the USB receive callback
- * would delay servicing the next isochronous (micro)frame and starve the USB
- * side further, so handoff to a dedicated consumer thread instead.
- */
-#define AUDIO_OUT_QUEUE_DEPTH 3
-K_MSGQ_DEFINE(audio_out_msgq, sizeof(pending_samples), AUDIO_OUT_QUEUE_DEPTH, 4);
 static atomic_t g_audio_out_dropped;
-static void audio_out_thread_fn(void *p1, void *p2, void *p3);
-K_THREAD_DEFINE(audio_out_tid, 1536, audio_out_thread_fn, NULL, NULL, NULL, 6, 0, 0);
 
 static atomic_t g_uac2_stream_active;
 static atomic_t g_packet_count;
 static atomic_t g_byte_count;
 static atomic_t g_frame_count;
-static atomic_t g_i2s_block_count;
 static atomic_t g_buf_requests;
 static atomic_t g_buf_rejects;
 static atomic_t g_buf_releases;
@@ -60,22 +49,8 @@ static atomic_t g_sof_seen;
 static atomic_t g_terminal_enabled;
 static usb_uac2_audio_sink_fn g_audio_sink;
 static void *g_audio_sink_ctx;
-
-static void audio_out_thread_fn(void *p1, void *p2, void *p3)
-{
-    static float block[UAC2_I2S_BLOCK_FRAMES * UAC2_CHANNELS];
-
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
-    while (1) {
-        if (k_msgq_get(&audio_out_msgq, block, K_FOREVER) == 0 && g_audio_sink != NULL) {
-            if (g_audio_sink(g_audio_sink_ctx, block, UAC2_I2S_BLOCK_FRAMES) == 0) {
-                atomic_inc(&g_i2s_block_count);
-            }
-        }
-    }
-}
+static usb_uac2_fill_query_fn g_feedback_query;
+static void *g_feedback_query_ctx;
 
 USBD_DEVICE_DEFINE(uac2_device,
            DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),
@@ -187,7 +162,12 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
         pending_frames++;
 
         if (pending_frames == UAC2_I2S_BLOCK_FRAMES) {
-            if (k_msgq_put(&audio_out_msgq, pending_samples, K_NO_WAIT) != 0) {
+            /* Handed straight to whatever sink was registered (the pipeline
+             * layer owns any buffering/decoupling it needs, e.g. via
+             * play_pipeline_async_push()); this call must not block.
+             */
+            if (g_audio_sink == NULL ||
+                g_audio_sink(g_audio_sink_ctx, pending_samples, UAC2_I2S_BLOCK_FRAMES) != 0) {
                 atomic_inc(&g_audio_out_dropped);
             }
             pending_frames = 0U;
@@ -227,13 +207,57 @@ void usb_uac2_set_audio_sink(usb_uac2_audio_sink_fn sink, void *ctx)
     g_audio_sink_ctx = ctx;
 }
 
+void usb_uac2_set_feedback_source(usb_uac2_fill_query_fn query, void *ctx)
+{
+    g_feedback_query = query;
+    g_feedback_query_ctx = ctx;
+}
+
+/* Adaptive feedback: STM32 has no hardware SOF/I2S-frame timestamp comparator
+ * (unlike e.g. the nRF reference sample), so approximate the true USB-vs-
+ * output clock ratio by nudging the reported rate towards whichever
+ * direction keeps the registered downstream buffer (see
+ * usb_uac2_set_feedback_source()) near half full. Simple bang-bang
+ * integrator, clamped to a small range around the nominal 48.000kHz value.
+ */
+#define UAC2_FB_MAX_ADJUST ((int32_t)(UAC2_FS_FEEDBACK / 200)) /* +-0.5% */
+#define UAC2_FB_STEP 2
+#define UAC2_FB_TARGET_PERMILLE 500
+static int32_t g_fb_adjust;
+
 static uint32_t uac2_feedback_cb(const struct device *dev, uint8_t terminal,
                                  void *user_data)
 {
+    int32_t fill;
+    int32_t error;
+
     ARG_UNUSED(dev);
     ARG_UNUSED(terminal);
     ARG_UNUSED(user_data);
-    return UAC2_FS_FEEDBACK;
+
+    if (g_feedback_query == NULL) {
+        return UAC2_FS_FEEDBACK;
+    }
+    fill = (int32_t)g_feedback_query(g_feedback_query_ctx);
+    error = UAC2_FB_TARGET_PERMILLE - fill;
+
+    if (error > 0) {
+        g_fb_adjust += UAC2_FB_STEP;
+    } else if (error < 0) {
+        g_fb_adjust -= UAC2_FB_STEP;
+    }
+    if (g_fb_adjust > UAC2_FB_MAX_ADJUST) {
+        g_fb_adjust = UAC2_FB_MAX_ADJUST;
+    } else if (g_fb_adjust < -UAC2_FB_MAX_ADJUST) {
+        g_fb_adjust = -UAC2_FB_MAX_ADJUST;
+    }
+
+    return (uint32_t)((int32_t)UAC2_FS_FEEDBACK + g_fb_adjust);
+}
+
+int32_t usb_uac2_get_feedback_adjust(void)
+{
+    return g_fb_adjust;
 }
 
 static const struct uac2_ops uac2_ops = {
@@ -261,7 +285,7 @@ bool usb_uac2_first_packet_seen(void)
 }
 
 void usb_uac2_get_stats(uint32_t *packets, uint32_t *bytes,
-                        uint32_t *frames, uint32_t *i2s_blocks,
+                        uint32_t *frames,
                         uint32_t *buf_requests, uint32_t *buf_rejects,
                         uint32_t *zero_packets, uint32_t *invalid_packets,
                         uint32_t *odd_byte_packets, uint32_t *checksum)
@@ -274,9 +298,6 @@ void usb_uac2_get_stats(uint32_t *packets, uint32_t *bytes,
     }
     if (frames != NULL) {
         *frames = (uint32_t)atomic_get(&g_frame_count);
-    }
-    if (i2s_blocks != NULL) {
-        *i2s_blocks = (uint32_t)atomic_get(&g_i2s_block_count);
     }
     if (buf_requests != NULL) {
         *buf_requests = (uint32_t)atomic_get(&g_buf_requests);

@@ -10,5 +10,7 @@ void pcm5102a_audio_write_float(const float *interleaved, uint32_t frames);
 void pcm5102a_audio_write_pcm16(const int16_t *interleaved, uint32_t frames);
 int pcm5102a_audio_output_stage(void *ctx, play_frame_block *block);
 void pcm5102a_audio_get_stats(uint32_t *write_blocks, uint32_t *write_errors);
+uint32_t pcm5102a_audio_get_slab_used(void);
+uint32_t pcm5102a_audio_get_slab_capacity(void);
 
 #endif

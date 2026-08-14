@@ -41,6 +41,7 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/play_mcu_zephyr_pcm5102.c
       src/pcm5102a_audio.c
       src/play_audio_pipeline.c
+      src/play_pipeline_async.c
       src/play_pipeline_fanout.c
       src/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c

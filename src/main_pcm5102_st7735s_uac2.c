@@ -9,6 +9,7 @@
 #include "audio_3_wav_data.h"
 #include "st7735s_log_display.h"
 #include "play_audio_pipeline.h"
+#include "play_pipeline_async.h"
 #include "pcm5102a_audio.h"
 #include "usb_uac2_device.h"
 
@@ -22,6 +23,19 @@ LOG_MODULE_REGISTER(main_pcm5102_st7735s_uac2, LOG_LEVEL_INF);
 #endif
 
 static bool g_display_ready;
+
+/* Async decoupling between the UAC2 receive path and the (potentially
+ * blocking) PCM5102A output stage. Owned here, in the composition root:
+ * neither the uac2 nor the pcm5102a module needs to know about the other.
+ */
+#define AUDIO_OUT_QUEUE_DEPTH 3
+#ifndef MINIAUDIO_UAC2_NULL_SINK
+static K_THREAD_STACK_DEFINE(audio_out_stack, 1536);
+static char audio_out_msgq_buffer[AUDIO_OUT_QUEUE_DEPTH *
+                                  LOCAL_BLOCK_FRAMES * UAC2_CHANNELS * sizeof(float)];
+static float audio_out_scratch[LOCAL_BLOCK_FRAMES * UAC2_CHANNELS];
+static play_pipeline_async audio_out_async;
+#endif
 
 static int pipeline_sink(void *ctx, const float *frames, uint32_t count)
 {
@@ -172,6 +186,17 @@ int main(void)
     if (ret == 0) ret = play_audio_pipeline_init(&pipeline, UAC2_SAMPLE_RATE, UAC2_CHANNELS);
     if (ret == 0) ret = play_audio_pipeline_add_output(&pipeline, "pcm5102a", NULL,
                                                        pcm5102a_audio_output_stage);
+    /* Must stay lower priority (higher number) than CONFIG_UDC_STM32_THREAD_PRIORITY
+     * (8): this thread can block for a couple ms doing I2S/DMA writes, and if
+     * it ran at higher priority than the USB stack thread it would preempt
+     * and starve isochronous (micro)frame servicing.
+     */
+    if (ret == 0) ret = play_pipeline_async_init(&audio_out_async,
+                                                 audio_out_stack, K_THREAD_STACK_SIZEOF(audio_out_stack),
+                                                 audio_out_msgq_buffer, AUDIO_OUT_QUEUE_DEPTH,
+                                                 audio_out_scratch,
+                                                 LOCAL_BLOCK_FRAMES, UAC2_CHANNELS,
+                                                 10, pipeline_sink, &pipeline);
 #else
     ret = 0;
 #endif
@@ -194,7 +219,8 @@ int main(void)
     }
 
 #ifndef MINIAUDIO_UAC2_NULL_SINK
-    usb_uac2_set_audio_sink(pipeline_sink, &pipeline);
+    usb_uac2_set_audio_sink(play_pipeline_async_push, &audio_out_async);
+    usb_uac2_set_feedback_source(play_pipeline_async_fill_permille, &audio_out_async);
 #else
     usb_uac2_set_audio_sink(NULL, NULL);
 #endif
@@ -223,7 +249,6 @@ int main(void)
             uint32_t packets;
             uint32_t bytes;
             uint32_t frames;
-            uint32_t i2s_blocks;
                 uint32_t buf_requests;
                 uint32_t buf_rejects;
                 uint32_t zero_packets;
@@ -232,10 +257,14 @@ int main(void)
                 uint32_t checksum;
                 uint32_t pipeline_processed;
                 uint32_t pipeline_failed;
-                usb_uac2_get_stats(&packets, &bytes, &frames, &i2s_blocks,
+                uint32_t audio_out_delivered = 0U;
+                usb_uac2_get_stats(&packets, &bytes, &frames,
                            &buf_requests, &buf_rejects, &zero_packets,
                            &invalid_packets, &odd_byte_packets, &checksum);
                 play_audio_pipeline_get_stats(&pipeline, &pipeline_processed, &pipeline_failed);
+#ifndef MINIAUDIO_UAC2_NULL_SINK
+                audio_out_delivered = play_pipeline_async_get_delivered(&audio_out_async);
+#endif
             {
                 int64_t now_ms = k_uptime_get();
                 uint32_t rate = 0U;
@@ -243,10 +272,11 @@ int main(void)
                     rate = (uint32_t)(((uint64_t)(frames - last_frames) * 1000U) /
                                       (uint64_t)(now_ms - last_rate_ms));
                 }
-                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u I2S blocks=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u",
-                    packets, bytes, frames, i2s_blocks, buf_requests,
+                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u out_delivered=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u fb_adj=%d",
+                    packets, bytes, frames, audio_out_delivered, buf_requests,
                     buf_rejects, zero_packets, invalid_packets, odd_byte_packets, checksum,
-                    pipeline_processed, pipeline_failed, usb_uac2_get_audio_out_dropped());
+                    pipeline_processed, pipeline_failed, usb_uac2_get_audio_out_dropped(),
+                    usb_uac2_get_feedback_adjust());
                 display_uac2_status(packets, frames, rate, buf_requests,
                                     buf_rejects, invalid_packets, odd_byte_packets);
                 last_packets = packets;
