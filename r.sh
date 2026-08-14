@@ -39,6 +39,8 @@ Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|build-demo
     flash-uac2-null  Flash UAC2 protocol receiver without PCM5102A output
     build-uac2-null-implicit  Build UAC2 null sink with implicit feedback
     flash-uac2-null-implicit  Flash UAC2 null sink with implicit feedback
+    build-uac2-implicit  Build UAC2 receiver with implicit feedback (real PCM5102A audio, no explicit feedback endpoint)
+    flash-uac2-implicit  Flash UAC2 receiver with implicit feedback
   flash-uac2-stm32  Flash the STM32 UAC2 receiver scaffold
   build-uac2-stm32-prod  Build the STM32 UAC2 production scaffold
   flash-uac2-stm32-prod  Flash the STM32 UAC2 production scaffold
@@ -97,6 +99,14 @@ build_uac2_null_app() {
 
 build_uac2_null_implicit_app() {
   "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-null-implicit --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2_implicit.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_NULL_SINK=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
+}
+
+# Real PCM5102A audio with implicit feedback (no explicit feedback endpoint,
+# see uac2_pcm5102_macos_dev_log.md section 6 -- macOS was found to stop
+# polling our explicit feedback endpoint after negotiation, so this is worth
+# comparing against the explicit-feedback build in build-uac2-stm32).
+build_uac2_implicit_app() {
+  "$WEST" build -b "$BOARD" . --build-dir build-zephyr-f401rct6-uac2-implicit --pristine -- -DEXTRA_CONF_FILE=prj_uac2.conf -DDTC_OVERLAY_FILE=boards/stm32f401rct6_uac2_implicit.overlay -DMINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON -DMINIAUDIO_UAC2_PID=$(uac2_pid_arg)
 }
 
 build_uac2_stm32_prod_app() {
@@ -318,6 +328,12 @@ main() {
       ;;
     flash-uac2-null-implicit)
       flash_app "build-zephyr-f401rct6-uac2-null-implicit"
+      ;;
+    build-uac2-implicit)
+      build_uac2_implicit_app
+      ;;
+    flash-uac2-implicit)
+      flash_app "build-zephyr-f401rct6-uac2-implicit"
       ;;
     flash-uac2-stm32)
       flash_app "build-zephyr-f401rct6-uac2"

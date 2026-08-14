@@ -204,7 +204,13 @@ int main(void)
 
 #ifndef MINIAUDIO_UAC2_NULL_SINK
     usb_uac2_set_audio_sink(play_pipeline_async_push, &audio_out_async);
+#ifndef MINIAUDIO_UAC2_IMPLICIT
+    /* Implicit feedback removes the OUT stream's explicit feedback endpoint
+     * entirely (see zephyr,uac2-audio-streaming binding), so there is
+     * nothing for usb_uac2_set_feedback_source() to drive in that mode.
+     */
     usb_uac2_set_feedback_source(pcm5102a_fill_permille, NULL);
+#endif
 #else
     usb_uac2_set_audio_sink(NULL, NULL);
 #endif
@@ -218,6 +224,11 @@ int main(void)
     }
 
     key_log("UAC2 stream ready");
+#ifdef MINIAUDIO_UAC2_IMPLICIT
+    key_log("UAC2 feedback: implicit");
+#else
+    key_log("UAC2 feedback: explicit");
+#endif
     next_status_ms = k_uptime_get();
 
     while (1) {
