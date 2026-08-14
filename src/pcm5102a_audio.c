@@ -40,11 +40,25 @@ static uint32_t g_write_blocks;
 static uint32_t g_write_errors;
 static float g_output_accumulator[PCM_BLOCK_FRAMES * PCM_CHANNELS];
 static uint32_t g_output_accumulated_frames;
+static uint32_t g_slab_used_min = PCM_SLAB_BLOCK_COUNT;
+static uint32_t g_slab_used_max;
 
 static void reset_stream_state(void)
 {
     g_started = false;
     g_queued_before_start = 0U;
+}
+
+static void track_slab_range(void)
+{
+    uint32_t used = pcm5102a_audio_get_slab_used();
+
+    if (used < g_slab_used_min) {
+        g_slab_used_min = used;
+    }
+    if (used > g_slab_used_max) {
+        g_slab_used_max = used;
+    }
 }
 
 static int configure_i2s(void)
@@ -146,6 +160,7 @@ static void write_float_unlocked(const float *interleaved, uint32_t frames)
         return;
     }
 
+    track_slab_range();
     g_write_blocks++;
     if (!g_started) {
         g_queued_before_start++;
@@ -249,6 +264,14 @@ uint32_t pcm5102a_audio_get_slab_used(void)
 uint32_t pcm5102a_audio_get_slab_capacity(void)
 {
     return (uint32_t)PCM_SLAB_BLOCK_COUNT;
+}
+
+void pcm5102a_audio_sample_slab_range(uint32_t *min_used, uint32_t *max_used)
+{
+    if (min_used != NULL) *min_used = g_slab_used_min;
+    if (max_used != NULL) *max_used = g_slab_used_max;
+    g_slab_used_min = PCM_SLAB_BLOCK_COUNT;
+    g_slab_used_max = 0U;
 }
 
 /* Compatibility symbols for existing playback entrypoints. */

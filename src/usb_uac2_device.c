@@ -217,11 +217,13 @@ void usb_uac2_set_feedback_source(usb_uac2_fill_query_fn query, void *ctx)
  * (unlike e.g. the nRF reference sample), so approximate the true USB-vs-
  * output clock ratio by nudging the reported rate towards whichever
  * direction keeps the registered downstream buffer (see
- * usb_uac2_set_feedback_source()) near half full. Simple bang-bang
- * integrator, clamped to a small range around the nominal 48.000kHz value.
+ * usb_uac2_set_feedback_source()) near half full. Proportional integrator,
+ * clamped to a wider range than typical USB PLL tolerances since this MCU's
+ * I2S clock derives from the untrimmed HSI RC oscillator (no crystal), which
+ * can be off by a few percent rather than the usual sub-1% crystal drift.
  */
-#define UAC2_FB_MAX_ADJUST ((int32_t)(UAC2_FS_FEEDBACK / 200)) /* +-0.5% */
-#define UAC2_FB_STEP 2
+#define UAC2_FB_MAX_ADJUST ((int32_t)(UAC2_FS_FEEDBACK / 20)) /* +-5% */
+#define UAC2_FB_GAIN 16
 #define UAC2_FB_TARGET_PERMILLE 500
 static int32_t g_fb_adjust;
 
@@ -241,11 +243,7 @@ static uint32_t uac2_feedback_cb(const struct device *dev, uint8_t terminal,
     fill = (int32_t)g_feedback_query(g_feedback_query_ctx);
     error = UAC2_FB_TARGET_PERMILLE - fill;
 
-    if (error > 0) {
-        g_fb_adjust += UAC2_FB_STEP;
-    } else if (error < 0) {
-        g_fb_adjust -= UAC2_FB_STEP;
-    }
+    g_fb_adjust += (error * UAC2_FB_GAIN) / UAC2_FB_TARGET_PERMILLE;
     if (g_fb_adjust > UAC2_FB_MAX_ADJUST) {
         g_fb_adjust = UAC2_FB_MAX_ADJUST;
     } else if (g_fb_adjust < -UAC2_FB_MAX_ADJUST) {

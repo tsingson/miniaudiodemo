@@ -117,7 +117,11 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/st7735s_log_display.c
       src/zpix12_font_data.c)
     target_compile_definitions(app PRIVATE MINIAUDIO_ST7735S_ZPIX_FONT=1)
-  else()
+  elseif(NOT MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
+    # The UAC2 receiver no longer drives the ST7735S screen (see
+    # uac2_pcm5102_macos_dev_log.md): serial LOG_INF status covers it, and the
+    # stub driver's per-pixel blocking SPI writes were starving the USB stack
+    # and audio_out threads for the better part of a second on every refresh.
     target_sources(app PRIVATE src/st7735s_log_display_stub.c)
   endif()
 

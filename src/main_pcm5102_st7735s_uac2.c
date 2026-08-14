@@ -1,13 +1,11 @@
 #include <stdbool.h>
 #include <errno.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
 #include "audio_3_wav_data.h"
-#include "st7735s_log_display.h"
 #include "play_audio_pipeline.h"
 #include "play_pipeline_async.h"
 #include "pcm5102a_audio.h"
@@ -21,8 +19,6 @@ LOG_MODULE_REGISTER(main_pcm5102_st7735s_uac2, LOG_LEVEL_INF);
 #ifndef MINIAUDIO_UAC2_PID
 #define MINIAUDIO_UAC2_PID 0x0102
 #endif
-
-static bool g_display_ready;
 
 /* Async decoupling between the UAC2 receive path and the (potentially
  * blocking) PCM5102A output stage. Owned here, in the composition root:
@@ -46,6 +42,26 @@ static int pipeline_sink(void *ctx, const float *frames, uint32_t count)
     return ret;
 }
 
+#ifndef MINIAUDIO_UAC2_NULL_SINK
+/* Feedback needs to track the buffer that actually absorbs USB-vs-DAC clock
+ * drift over multi-second timescales: the PCM5102A I2S TX slab (~43ms deep).
+ * The async decoupling queue in front of it is too shallow (~8ms) and its
+ * occupancy is dominated by scheduling jitter, not the slow drift trend, so
+ * it is not a suitable feedback signal on its own.
+ */
+static uint32_t pcm5102a_fill_permille(void *ctx)
+{
+    uint32_t used = pcm5102a_audio_get_slab_used();
+    uint32_t capacity = pcm5102a_audio_get_slab_capacity();
+
+    ARG_UNUSED(ctx);
+    if (capacity == 0U) {
+        return 0U;
+    }
+    return (used * 1000U) / capacity;
+}
+#endif
+
 struct local_wav_view {
     const int16_t *data;
     uint32_t frames;
@@ -56,9 +72,6 @@ struct local_wav_view {
 static void key_log(const char *message)
 {
     LOG_INF("%s", message);
-    if (g_display_ready) {
-        st7735s_log_display_line(message);
-    }
 }
 
 static uint16_t read_le16(const unsigned char *p)
@@ -134,30 +147,6 @@ static void fill_local_block(float *out, const struct local_wav_view *wav, uint6
     }
 }
 
-static void display_uac2_status(uint32_t packets, uint32_t frames,
-                                uint32_t rate,
-                                uint32_t buf_requests, uint32_t buf_rejects,
-                                uint32_t invalid_packets, uint32_t odd_packets)
-{
-    char line[32];
-
-    if (!g_display_ready) return;
-    (void)snprintf(line, sizeof(line), "PID %04X", MINIAUDIO_UAC2_PID);
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "TERM %s", usb_uac2_terminal_enabled() ? "ON" : "OFF");
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "RX %u F %u", packets, frames);
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "RATE %uHz", rate);
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "BUF %u/%u", buf_requests, buf_rejects);
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "REL %u", usb_uac2_get_release_count());
-    st7735s_log_display_line(line);
-    (void)snprintf(line, sizeof(line), "ERR %u/%u", invalid_packets, odd_packets);
-    st7735s_log_display_line(line);
-}
-
 int main(void)
 {
     static float local_block[LOCAL_BLOCK_FRAMES * UAC2_CHANNELS];
@@ -170,14 +159,9 @@ int main(void)
     uint32_t last_frames = 0U;
     uint32_t last_invalid_packets = 0U;
     uint32_t last_odd_packets = 0U;
-    int64_t last_rate_ms = 0;
     int64_t next_status_ms = 0;
     static play_audio_pipeline pipeline;
     int ret;
-
-    if (st7735s_log_display_init() == 0) {
-        g_display_ready = true;
-    }
 
     key_log("UAC2 receiver start");
 
@@ -220,7 +204,7 @@ int main(void)
 
 #ifndef MINIAUDIO_UAC2_NULL_SINK
     usb_uac2_set_audio_sink(play_pipeline_async_push, &audio_out_async);
-    usb_uac2_set_feedback_source(play_pipeline_async_fill_permille, &audio_out_async);
+    usb_uac2_set_feedback_source(pcm5102a_fill_permille, NULL);
 #else
     usb_uac2_set_audio_sink(NULL, NULL);
 #endif
@@ -258,32 +242,26 @@ int main(void)
                 uint32_t pipeline_processed;
                 uint32_t pipeline_failed;
                 uint32_t audio_out_delivered = 0U;
+                uint32_t slab_min = 0U;
+                uint32_t slab_max = 0U;
                 usb_uac2_get_stats(&packets, &bytes, &frames,
                            &buf_requests, &buf_rejects, &zero_packets,
                            &invalid_packets, &odd_byte_packets, &checksum);
                 play_audio_pipeline_get_stats(&pipeline, &pipeline_processed, &pipeline_failed);
 #ifndef MINIAUDIO_UAC2_NULL_SINK
                 audio_out_delivered = play_pipeline_async_get_delivered(&audio_out_async);
+                pcm5102a_audio_sample_slab_range(&slab_min, &slab_max);
 #endif
             {
-                int64_t now_ms = k_uptime_get();
-                uint32_t rate = 0U;
-                if (last_rate_ms > 0 && now_ms > last_rate_ms) {
-                    rate = (uint32_t)(((uint64_t)(frames - last_frames) * 1000U) /
-                                      (uint64_t)(now_ms - last_rate_ms));
-                }
-                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u out_delivered=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u fb_adj=%d",
+                LOG_INF("UAC2 RX packets=%u bytes=%u frames=%u out_delivered=%u buffers=%u rejected=%u zero=%u invalid=%u odd=%u checksum=%u pipe_ok=%u pipe_fail=%u audio_drop=%u fb_adj=%d slab_min=%u slab_max=%u",
                     packets, bytes, frames, audio_out_delivered, buf_requests,
                     buf_rejects, zero_packets, invalid_packets, odd_byte_packets, checksum,
                     pipeline_processed, pipeline_failed, usb_uac2_get_audio_out_dropped(),
-                    usb_uac2_get_feedback_adjust());
-                display_uac2_status(packets, frames, rate, buf_requests,
-                                    buf_rejects, invalid_packets, odd_byte_packets);
+                    usb_uac2_get_feedback_adjust(), slab_min, slab_max);
                 last_packets = packets;
                 last_frames = frames;
                 last_invalid_packets = invalid_packets;
                 last_odd_packets = odd_byte_packets;
-                last_rate_ms = now_ms;
             }
             next_status_ms += 500;
         }

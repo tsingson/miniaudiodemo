@@ -13,4 +13,10 @@ void pcm5102a_audio_get_stats(uint32_t *write_blocks, uint32_t *write_errors);
 uint32_t pcm5102a_audio_get_slab_used(void);
 uint32_t pcm5102a_audio_get_slab_capacity(void);
 
+/* Diagnostic: min/max TX slab occupancy observed since the last call, then
+ * resets the tracked range. Lets callers directly see whether the buffer is
+ * genuinely trending toward empty (clock drift) or just oscillating.
+ */
+void pcm5102a_audio_sample_slab_range(uint32_t *min_used, uint32_t *max_used);
+
 #endif
