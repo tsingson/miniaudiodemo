@@ -37,7 +37,7 @@ static size_t pending_frames;
  * would delay servicing the next isochronous (micro)frame and starve the USB
  * side further, so handoff to a dedicated consumer thread instead.
  */
-#define AUDIO_OUT_QUEUE_DEPTH 4
+#define AUDIO_OUT_QUEUE_DEPTH 3
 K_MSGQ_DEFINE(audio_out_msgq, sizeof(pending_samples), AUDIO_OUT_QUEUE_DEPTH, 4);
 static atomic_t g_audio_out_dropped;
 static void audio_out_thread_fn(void *p1, void *p2, void *p3);
