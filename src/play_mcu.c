@@ -1,6 +1,5 @@
 #include "play_dsp_common.h"
 #include "play_audio_pipeline.h"
-#include "pcm5102a_audio.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -36,6 +35,30 @@ void play_mcu_write_frames(const float* interleavedIn, uint32_t frameCount)
     (void)frameCount;
 }
 
+static int play_mcu_output_stage(void *ctx, play_frame_block *block)
+{
+    (void)ctx;
+
+    if (block == NULL || block->frameCount > MCU_BLOCK_FRAMES ||
+        block->channels != MCU_CHANNELS) {
+        return -1;
+    }
+    if (block->layout == PLAY_BUFFER_LAYOUT_INTERLEAVED) {
+        play_mcu_write_frames(block->interleaved, block->frameCount);
+        return 0;
+    }
+    if (block->layout != PLAY_BUFFER_LAYOUT_PLANAR || block->planar == NULL) {
+        return -1;
+    }
+    for (uint32_t frame = 0; frame < block->frameCount; ++frame) {
+        for (uint32_t channel = 0; channel < block->channels; ++channel) {
+            g_audioBlock[frame * block->channels + channel] = block->planar[channel][frame];
+        }
+    }
+    play_mcu_write_frames(g_audioBlock, block->frameCount);
+    return 0;
+}
+
 __attribute__ ((weak))
 
 void play_mcu_poll_eq(float* gainsOut, float* qsOut, int maxBands)
@@ -51,8 +74,8 @@ int main(void)
 
     if (play_audio_pipeline_init(&g_pipeline, MCU_SAMPLE_RATE, MCU_CHANNELS) != 0 ||
         play_audio_pipeline_add_dsp(&g_pipeline) != 0 ||
-        play_audio_pipeline_add_output(&g_pipeline, "pcm5102a", NULL,
-                                       pcm5102a_audio_output_stage) != 0)
+        play_audio_pipeline_add_output(&g_pipeline, "output", NULL,
+                                       play_mcu_output_stage) != 0)
     {
         return -1;
     }

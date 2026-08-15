@@ -12,7 +12,7 @@ BAUD="115200"
 WEST="/Users/qinshen/go/zephyrproject/.venv/bin/west"
 usage() {
   cat <<'EOF'
-Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|build-demo-prod|flash-demo-prod|build-prod|flash-prod|build-pcm|flash-pcm|all-pcm|build-pcm-prod|flash-pcm-prod|build-pcm5102a-test|flash-pcm5102a-test|build-uac2-macos|run-uac2-macos|build-uac2-stm32|flash-uac2-stm32|build-uac2-stm32-prod|flash-uac2-stm32-prod|clean>
+Usage: ./r.sh <build|flash|monitor|all|build-demo|flash-demo|all-demo|build-demo-prod|flash-demo-prod|build-prod|flash-prod|build-pcm|flash-pcm|all-pcm|build-pcm-prod|flash-pcm-prod|build-pcm5102a-test|flash-pcm5102a-test|build-uac2-macos|run-uac2-macos|build-uac2-stm32|flash-uac2-stm32|build-uac2-implicit|flash-uac2-implicit|build-uac2-null|flash-uac2-null|build-uac2-null-implicit|flash-uac2-null-implicit|build-uac2-stm32-prod|flash-uac2-stm32-prod|clean>
 
   build    Configure and build Zephyr app
   flash    Flash firmware to board via west

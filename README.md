@@ -8,11 +8,11 @@ arm cortex-m4 84mhz 有 fpu单精度, mpu , 256kb闪存, 64kb sram, 一个12位 
 上电中, 按 boot0 / 复位锓, 松开复位键, 0.5秒松开 boot0 
 断电后, 按 boot0 上电 后 0.5秒松开 boot0
 
-STM32F401 调试串口与 ST7735S 英文显示的独立说明见：[docs/stm32f401_debug_display.md](docs/stm32f401_debug_display.md)。默认构建为调试模式，使用 USB CDC ACM；生产模式关闭日志、控制台和串口，但保留显示/音频驱动。
+默认构建为调试模式，使用 USB CDC ACM；生产模式关闭日志、控制台和串口，但保留显示/音频驱动。UAC2 构建例外：`prj_uac2.conf` 关闭 USB CDC，并由 overlay 把日志路由到 USART1（PA9/PA10，115200）。
 PCM5102A 调试过程、故障现象与最终三线 I2S 配置见：[pcm5102a_dev_log.md](pcm5102a_dev_log.md)。
 macOS UAC2 到 STM32F401/PCM5102A 的架构、当前实现状态和后续协议工作见：[uac2_pcm5102_macos_dev_log.md](uac2_pcm5102_macos_dev_log.md)。
 
-UAC2 快捷命令：`./r.sh build-uac2-macos` 构建 macOS sender，`UAC2_DEVICE_NAME="STM32" ./r.sh run-uac2-macos` 运行 sender，`./r.sh build-uac2-stm32` / `./r.sh flash-uac2-stm32` 构建和烧录 STM32 receiver。
+UAC2 快捷命令：`./r.sh build-uac2-macos` 构建 macOS sender，`UAC2_DEVICE_NAME="STM32" ./r.sh run-uac2-macos` 运行 sender；STM32 可用 `build/flash-uac2-stm32`（显式反馈）或 `build/flash-uac2-implicit`（隐式反馈）构建和烧录。
 
 USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_prod.conf`，关闭日志、控制台和 USB CDC。
 
@@ -22,24 +22,24 @@ USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_
 
 zephyr 4.4.2 控制 PCM5102A, 引脚是 sck / bck / din / lrck / vin / gnd, 及 FLT / demp / xsmt / FMT / a3v3 / agnd / rout / agnd / lrout 引脚, 另有 line out 接口。
 
-PCM5102A + ST7735S 当前入口为 `src/main_pcm5102_st7735s.c`，音频发送由 `src/play_mcu_zephyr_pcm5102.c` 提供 Zephyr I2S 适配。
+PCM5102A + ST7735S 当前入口为 `src/main_pcm5102_st7735s.c`，音频发送由 `src/pcm5102/play_mcu_zephyr_pcm5102.c` 提供 Zephyr I2S 适配。
 
 ### Zephyr 编译（已验证可通过）
 
 ```sh
-west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
+/Users/qinshen/go/zephyrproject/.venv/bin/west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine
 ```
 
 若仅运行 ST7735S 白底黑字 `hello copilot` 演示入口（`src/main_st7735s.c`）：
 
 ```sh
-west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_DEMO_MAIN=ON
+/Users/qinshen/go/zephyrproject/.venv/bin/west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_DEMO_MAIN=ON
 ```
 
-若运行 PCM5102 + ST7735S 联合入口（`src/main_pcm5102_st7735s.c`，输出规则噪音并双通道日志）：
+若运行 PCM5102 + ST7735S 联合入口（`src/main_pcm5102_st7735s.c`，循环播放内嵌 WAV 并经过 DSP pipeline）：
 
 ```sh
-west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6-pcm5102-st7735s --pristine -- -DMINIAUDIO_PCM5102_ST7735S_MAIN=ON
+/Users/qinshen/go/zephyrproject/.venv/bin/west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6-pcm5102-st7735s --pristine -- -DMINIAUDIO_PCM5102_ST7735S_MAIN=ON
 ```
 
 当前该入口已改为内嵌并循环播放 `./3.wav` 到 PCM5102A（WAV PCM16，支持 mono/stereo；若源采样率不是 48kHz，会在固件内按最近邻方式重采样到 48kHz 输出）。I2S 仅使用 DIN/BCK/LRCK 三根线，不配置 MCLK 或 PCM5102A 控制 GPIO。
@@ -47,7 +47,7 @@ west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6-pcm5102-st7735s 
 若做 STM32H7B0VBT6 串口对比测试入口（`src/main_stm32h7b0vbt6.c`，打印 `hello copilot`）：
 
 ```sh
-west build -b mini_stm32h7b0 . --build-dir build-zephyr-h7b0vbt6 --pristine -- -DMINIAUDIO_STM32H7B0VBT6_DEMO_MAIN=ON -DCONF_FILE=prj_h7b0_demo.conf
+/Users/qinshen/go/zephyrproject/.venv/bin/west build -b mini_stm32h7b0 . --build-dir build-zephyr-h7b0vbt6 --pristine -- -DMINIAUDIO_STM32H7B0VBT6_DEMO_MAIN=ON -DCONF_FILE=prj_h7b0_demo.conf
 ```
 
 说明：
@@ -56,14 +56,14 @@ west build -b mini_stm32h7b0 . --build-dir build-zephyr-h7b0vbt6 --pristine -- -
 - 若你换到更大 Flash 容量芯片并需要中文字库，可开启：
 
 ```sh
-west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_ZPIX_FONT=ON
+/Users/qinshen/go/zephyrproject/.venv/bin/west build -b nucleo_f401re . --build-dir build-zephyr-f401rct6 --pristine -- -DMINIAUDIO_ST7735S_ZPIX_FONT=ON
 ```
 
 overlay 文件：`boards/nucleo_f401re.overlay`（内部 include `boards/stm32f401rct6.overlay`）
 
 ### ST7735S 英文显示复用
 
-轻量显示模块 `src/st7735s_log_display_stub.c` 使用 8x12 像素字符单元，内含完整可打印 ASCII 字符表；实际笔画为紧凑的 5x7 位图并在单元内留白，默认白底黑字。未知或非 ASCII 字节显示为 `?`。
+轻量显示模块 `src/lcd/st7735s_log_display_stub.c` 使用 8x12 像素字符单元，内含完整可打印 ASCII 字符表；实际笔画为紧凑的 5x7 位图并在单元内留白，默认白底黑字。未知或非 ASCII 字节显示为 `?`。
 
 复用方式：
 
@@ -89,8 +89,8 @@ if (st7735s_log_display_init() == 0) {
 ./r.sh flash-prod # 烧录生产模式固件
 ./r.sh build-demo-prod # 编译 ST7735S demo 生产固件，关闭调试串口
 ./r.sh flash-demo-prod # 烧录 ST7735S demo 生产固件
-./r.sh build-pcm  # 编译 PCM5102+ST7735S 规则噪音入口（src/main_pcm5102_st7735s.c）
-./r.sh flash-pcm  # 烧录 PCM5102+ST7735S 规则噪音固件
+./r.sh build-pcm  # 编译 PCM5102+ST7735S 内嵌 WAV/DSP 入口（src/main_pcm5102_st7735s.c）
+./r.sh flash-pcm  # 烧录 PCM5102+ST7735S 音频固件
 ./r.sh all-pcm    # 编译 + 烧录 PCM5102+ST7735S + 串口监测
 ./r.sh build-pcm-prod # 编译 PCM5102A+ST7735S 生产固件
 ./r.sh flash-pcm-prod # 烧录 PCM5102A+ST7735S 生产固件
@@ -98,8 +98,10 @@ if (st7735s_log_display_init() == 0) {
 ./r.sh flash-pcm5102a-test # 烧录确定性 PCM5102A 写入测试固件
 ./r.sh build-uac2-macos # 编译 macOS UAC2 sender（src/main_uac2_srv.c）
 ./r.sh run-uac2-macos   # 运行 macOS UAC2 sender（设置 UAC2_DEVICE_NAME）
-./r.sh build-uac2-stm32 # 编译 STM32 原生 Zephyr UAC2 receiver + PCM5102A + ST7735S
+./r.sh build-uac2-stm32 # 编译 STM32 原生 Zephyr UAC2 receiver + PCM5102A（USART1 日志，无 LCD）
 ./r.sh flash-uac2-stm32 # 烧录 STM32 UAC2 receiver 固件
+./r.sh build-uac2-implicit # 编译隐式反馈 UAC2 receiver + PCM5102A
+./r.sh flash-uac2-implicit # 烧录隐式反馈 UAC2 receiver
 ./r.sh build-uac2-null  # 编译 UAC2 协议测试固件（不带 PCM5102A 输出）
 ./r.sh flash-uac2-null  # 烧录 UAC2 协议测试固件
 ./r.sh build-uac2-null-implicit # 编译 UAC2 隐式反馈 null-sink 固件
@@ -113,9 +115,9 @@ if (st7735s_log_display_init() == 0) {
 - `build/flash/all` 使用默认入口（`src/play_mcu.c`）。
 - `build-demo/flash-demo/all-demo` 使用 ST7735S 演示入口（`src/main_st7735s.c`）。
 - 默认 `prj.conf` 是调试模式；生产模式使用 `prj_prod.conf`。
-- `build-pcm/flash-pcm/all-pcm` 使用 PCM5102+ST7735S 规则噪音入口（`src/main_pcm5102_st7735s.c`）。
+- `build-pcm/flash-pcm/all-pcm` 使用 PCM5102+ST7735S 内嵌 WAV/DSP 入口（`src/main_pcm5102_st7735s.c`）。
 - `build-pcm5102a-test/flash-pcm5102a-test` 使用确定性 PCM16/48kHz 写入测试入口，不带 DSP 管线。
-- `build-uac2-stm32(-prod)/build-uac2-null(-implicit)` 均使用原生 Zephyr `zephyr,uac2` 接收入口（`src/main_pcm5102_st7735s_uac2.c` + `src/usb_uac2_device.c`）；项目已不再包含任何 TinyUSB 代码路径。
+- `build-uac2-stm32(-prod)`、`build-uac2-implicit`、`build-uac2-null` 和 `build-uac2-null-implicit` 均使用原生 Zephyr `zephyr,uac2` 接收入口；`src/uac2/uac2_audio_stream.c` 统一封装异步队列、设备初始化和统计，`src/uac2/usb_uac2_device.c` 只负责协议与端点。项目已不再包含任何 TinyUSB 代码路径。
 - `clean` 只清理 `build/demo/demo-prod/pcm/pcm-prod` 五个目录，不清理 UAC2/PCM5102A 测试/macOS 相关构建目录，需要时手动 `rm -rf build-zephyr-f401rct6-uac2*  build-zephyr-f401rct6-pcm5102a-test build-macos-uac2`。
 
 ### 当前 I2S/控制脚映射
@@ -123,15 +125,10 @@ if (st7735s_log_display_init() == 0) {
 - I2S2_CK(PCM5102A BCK): PB13
 - I2S2_SD(PCM5102A DIN): PB15
 - I2S2_WS(PCM5102A LRCK): PB12
-- FLT: PA0
-- DEMP: PA1
-- XSMT: PA4
-- FMT: PA8
-
 说明：
 - 你的板子未给出 PC6，可不接 PCM5102A 的 SCK(MCLK)，当前按 3 线 I2S 运行（BCK/LRCK/DIN）。
 - VIN/GND/A3V3/AGND/ROUT/LROUT/Line Out 为模拟/电源连线，不在 DTS 中以数字外设配置。
-- PCM5102 控制脚默认电平：`FLT=1(低延迟)`、`DEMP=0(关闭去加重)`、`FMT=0(I2S)`、`XSMT=1(取消静音)`。
+- 当前固件不配置 FLT/DEMP/XSMT/FMT GPIO；这些模块脚应按 PCM5102A 模块硬件要求固定到所需电平。
 
 ## ST7735S 显示移植
 
@@ -139,8 +136,8 @@ if (st7735s_log_display_init() == 0) {
 
 - 显示驱动接入：使用 Zephyr 原生 `sitronix,st7735r`(兼容 ST7735S) + `zephyr,mipi-dbi-spi`
 - overlay 参考：`boards/stm32f401rct6.overlay`
-- 中文字库：`src/zpix12_font_data.c` + `src/zpix12_font_data.h`
-- 运行日志显示模块：`src/st7735s_log_display.c` + `src/st7735s_log_display.h`
+- 中文字库：`src/lcd/zpix12_font_data.c` + `src/lcd/zpix12_font_data.h`
+- 运行日志显示模块：`src/lcd/st7735s_log_display.c` + `src/lcd/st7735s_log_display.h`
 - 运行日志默认样式：白底黑字（便于在常见 ST7735S 模组上确认点亮与文本可见性）
 
 ### STM32F401 上的 ST7735S 引脚配置（当前）
@@ -183,9 +180,9 @@ if (st7735s_log_display_init() == 0) {
 - PB13: I2S2_CK -> PCM5102A BCK
 - PB12: I2S2_WS -> PCM5102A LRCK
 - PB15: I2S2_SD -> PCM5102A DIN
-- PA0: FLT 控制
-- PA1: DEMP 控制
-- PA4: XSMT 控制
+
+### LCD（ST7735S, SPI1）
+
 - PA7: SDA (SPI1_MOSI)
 - PA6: RES (ST7735S_RST)
 - PA2: DC (ST7735S_DC)
@@ -196,7 +193,7 @@ if (st7735s_log_display_init() == 0) {
 
 - PA11: USB_DM (D-)
 - PA12: USB_DP (D+)
-- 已启用 Zephyr USB CDC ACM，连接后 macOS 会出现 `/dev/cu.usbmodem*` 设备。
+- 默认调试固件启用 USB CDC ACM，连接后 macOS 会出现 `/dev/cu.usbmodem*`；UAC2 固件关闭 CDC，将同一组 USB 引脚用于 UAC2，并通过 USART1 输出日志。
 - 注意：PA11/PA12 不能再用于 ST7735S 的 RES/BLK。
 
 ### 下载调试（ST-Link v2, SWD）

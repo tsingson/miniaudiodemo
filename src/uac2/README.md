@@ -1,11 +1,16 @@
-# src/uac2 — vendored/patched Zephyr STM32 UDC driver
+# src/uac2 — UAC2 stream/device integration and patched STM32 UDC driver
 
-This directory exists only because of one unmerged upstream fix. See
-[../../zephyr_uac2_eval.md](../../zephyr_uac2_eval.md) for the full research
-behind this decision.
+This directory owns the reusable UAC2 stream bridge and protocol integration.
+It also contains one vendored driver workaround; see
+[../../zephyr_uac2_eval.md](../../zephyr_uac2_eval.md) for the research behind
+that decision.
 
 ## What's here
 
+- `uac2_audio_stream.c/.h`: public application-facing bridge for device
+  startup, asynchronous pipeline handoff, and statistics snapshots.
+- `usb_uac2_device.c/.h`: Zephyr UAC2 descriptors, endpoint callbacks, PCM16
+  packet conversion, explicit feedback, and protocol counters.
 - `udc_stm32.c`: a copy of `drivers/usb/udc/udc_stm32.c` **as pinned by this
   project's ZEPHYR_BASE (v4.4.2)**, with the fix from unmerged upstream PR
   [zephyrproject-rtos/zephyr#113622](https://github.com/zephyrproject-rtos/zephyr/pull/113622)
@@ -29,7 +34,7 @@ callbacks. When an isochronous OUT endpoint (UAC2 playback data path) misses a
 single (micro)frame, the OTG core disables the endpoint and nothing ever
 re-arms it — the receiver gets a few zero-length packets and then goes
 permanently idle. This matches the `g_zero_packets` symptom already
-instrumented in [../usb_uac2_device.c](../usb_uac2_device.c).
+instrumented in [usb_uac2_device.c](usb_uac2_device.c).
 
 ## How it's wired in
 
@@ -40,16 +45,13 @@ instrumented in [../usb_uac2_device.c](../usb_uac2_device.c).
   available via Zephyr's own `zephyr_include_directories()`).
 - `prj_uac2.conf` sets `CONFIG_UDC_STM32=n` so Zephyr's own in-tree
   `drivers/usb/udc/udc_stm32.c` is **not** also compiled (that would be a
-  duplicate `DEVICE_DT_INST_DEFINE` for the same devicetree node), and
-  manually re-selects everything `CONFIG_UDC_STM32` would otherwise have
-  selected (`USE_STM32_LL_USB`, `USE_STM32_HAL_PCD`, `USE_STM32_HAL_PCD_EX`,
-  `UDC_DRIVER_HAS_HIGH_SPEED_SUPPORT`, `STM32_USB_COMMON`, `PINCTRL`), since
-  Kconfig `select` has no effect once the selecting symbol is off.
-- Nothing else in the tree changes: `usbd_uac2.c` (the UAC2 class layer) and
-  every other build variant (default `play_mcu.c`, `main_pcm5102_st7735s.c`,
-  etc.) keep using Zephyr's stock, unmodified code. This only affects the
+  duplicate `DEVICE_DT_INST_DEFINE` for the same devicetree node). The
+  application `Kconfig` symbol `MINIAUDIO_UAC2_UDC_STM32_FIX` re-selects the
+  dependencies and defaults normally supplied by `CONFIG_UDC_STM32`.
+- Zephyr's `usbd_uac2.c` class layer remains stock. This only affects the
   `MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON` build (`./r.sh build-uac2-stm32`,
-  `build-uac2-null`, `build-uac2-null-implicit`, `build-uac2-stm32-prod`).
+  `build-uac2-implicit`, `build-uac2-null`, `build-uac2-null-implicit`,
+  `build-uac2-stm32-prod`).
 - Applies equally to STM32F401 (`st,stm32-otgfs`) and STM32H7B0
   (`st,stm32-otghs` running Full-Speed) — both compatibles are handled by the
   same driver file.
@@ -59,11 +61,13 @@ instrumented in [../usb_uac2_device.c](../usb_uac2_device.c).
 Once `#113622` (or an equivalent fix) is merged into the Zephyr revision this
 project builds against:
 
-1. Delete `src/uac2/` entirely.
+1. Delete only `src/uac2/udc_stm32.c`; keep the stream/device integration
+  files in this directory.
 2. Remove the `src/uac2/udc_stm32.c` source entry and the
    `${ZEPHYR_BASE}/drivers/usb/udc` include directory from `CMakeLists.txt`.
-3. Remove the `CONFIG_UDC_STM32=n` block (and its re-selected options) from
-   `prj_uac2.conf`, restoring `CONFIG_UDC_STM32`'s own `default y`.
+3. Remove `CONFIG_UDC_STM32=n` from `prj_uac2.conf` and remove the now-unused
+  `MINIAUDIO_UAC2_UDC_STM32_FIX` workaround from the application `Kconfig`,
+  restoring `CONFIG_UDC_STM32`'s own defaults.
 4. Rebuild `./r.sh build-uac2-stm32` and confirm it still links (Zephyr's own
    driver takes over again, unchanged from before this workaround existed).
 

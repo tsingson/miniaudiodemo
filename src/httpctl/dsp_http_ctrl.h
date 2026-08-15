@@ -1,7 +1,7 @@
 #ifndef DSP_HTTP_CTRL_H
 #define DSP_HTTP_CTRL_H
 
-#include "miniaudio/miniaudio.h"
+#include "../miniaudio/miniaudio.h"
 #include "play_dsp_common.h"
 
 #include <pthread.h>

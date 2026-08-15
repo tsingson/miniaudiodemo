@@ -8,7 +8,7 @@
 - Zephyr 的 UAC2（USB Audio Class 2）实现基于新一代 `device_next`/UDC 协议栈：`subsys/usb/device_next/class/usbd_uac2.c` + `include/zephyr/usb/class/usbd_uac2.h` + `dts/bindings/usb/uac2/*`。协议/描述符层相对成熟，2024-02 至今持续有 double-buffering、多采样率、反馈端点等修复，且这些修复**均已包含在项目当前使用的 v4.4.2**。
 - STM32F401（`st,stm32-otgfs`）与 STM32H7B0（继承自 h7a3 的 `st,stm32-otghs`，跑 Full-Speed 模式）**共用同一个新驱动 `drivers/usb/udc/udc_stm32.c`**，都支持等时（isochronous）端点，理论上都可以跑 UAC2。
 - 但官方**没有任何 STM32 板卡的 UAC2 样例或 CI 覆盖**——`samples/subsys/usb/uac2_*` 只在 nRF5340/nRF54H20 上测试，`tests/subsys/usb/uac2` 只在 `native_sim`/`qemu_cortex_m3` 上跑描述符单元测试。STM32 上的 UAC2 完全是社区自行验证，没有上游回归测试兜底。
-- **关键风险**：`udc_stm32.c` 从未实现 `HAL_PCD_ISOOUTIncompleteCallback()`，等时 OUT 端点一旦丢失一个（micro）frame 就会被 OTG 核心禁用且永不重新武装，表现为 UAC2 播放（host→device）方向"收到几个零长度包后彻底静默"。这正是 PR [#113622](https://github.com/zephyrproject-rtos/zephyr/pull/113622)（**截至调研时仍未合并**，包括最新 main 分支）要修复的问题，且该 PR 明确验证于 STM32U575 OTG-FS 的 UAC2+CDC-ACM 组合设备。本项目 `src/usb_uac2_device.c` 中已有的 `g_zero_packets` 计数器，统计的正好是这个已知上游缺陷的症状。
+- **关键风险**：`udc_stm32.c` 从未实现 `HAL_PCD_ISOOUTIncompleteCallback()`，等时 OUT 端点一旦丢失一个（micro）frame 就会被 OTG 核心禁用且永不重新武装，表现为 UAC2 播放（host→device）方向"收到几个零长度包后彻底静默"。这正是 PR [#113622](https://github.com/zephyrproject-rtos/zephyr/pull/113622)（**截至调研时仍未合并**，包括最新 main 分支）要修复的问题，且该 PR 明确验证于 STM32U575 OTG-FS 的 UAC2+CDC-ACM 组合设备。本项目 `src/uac2/usb_uac2_device.c` 中已有的 `g_zero_packets` 计数器，统计的正好是这个已知上游缺陷的症状。
 - 结论：Zephyr 主线目前对 STM32F401/H7B0 的 UAC2 支持处于"**协议层可用、驱动层等时恢复能力不完整**"的阶段，建议将 PR #113622 的补丁手动 cherry-pick 到本项目使用的 Zephyr checkout 上再评估播放稳定性，而不是假设上游默认状态足够稳定用于量产。
 
 ## 2. Zephyr UAC2 实现现状
@@ -64,7 +64,7 @@ UAC2 只存在于新的 `device_next`（`CONFIG_USB_DEVICE_STACK_NEXT`）+ UDC�
 
 ## 5. 与本项目现状的交叉印证
 
-- `src/usb_uac2_device.c` 已经实现了 `g_zero_packets` / `g_invalid_packets` 计数器和 `usb_uac2_terminal_enabled()` 状态输出，行为模式与 #113622 描述的"host→device 播放收到零长度包后闲置"完全吻合——本项目此前遇到的调试信号很可能就是这个上游已知且尚未合并修复的问题，而不是本项目自身实现的 bug。
+- `src/uac2/usb_uac2_device.c` 已经实现了 `g_zero_packets` / `g_invalid_packets` 计数器，行为模式与 #113622 描述的"host→device 播放收到零长度包后闲置"完全吻合——本项目此前遇到的调试信号很可能就是这个上游已知且尚未合并修复的问题，而不是本项目自身实现的 bug。
 - `play_uac2.md` / `uac2_pcm5102_macos_dev_log.md` 中提到的 "Windows UAC2 driver 对 wMaxPacketSize 的非标准要求" 与上游 `CONFIG_USBD_UAC2_FS_WINDOWS_WORKAROUND` 选项描述一致，说明既有认知是准确的。
 - 项目当前固定使用的 `v4.4.2` 已经包含 2024-2025 年的双缓冲/反馈端点等修复，属于相对新的稳定点；缺口主要集中在 2026 年才开的 #113622（等时 OUT 恢复）与仍在跟踪的 #93924（Linux 一致性测试）。
 
@@ -90,18 +90,18 @@ UAC2 只存在于新的 `device_next`（`CONFIG_USB_DEVICE_STACK_NEXT`）+ UDC�
 - `CMakeLists.txt`：仅在 `MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN` 分支追加 `src/uac2/udc_stm32.c` 到 `target_sources`，并把 `${ZEPHYR_BASE}/drivers/usb/udc` 加入 include 路径（给私有的 `"udc_common.h"` 用；`stm32_usb_common.h` 已经是 Zephyr 全局 include，不用额外加）。
 - `prj_uac2.conf`：新增 `CONFIG_UDC_STM32=n`，让 Zephyr 不再编译它自己那份 `udc_stm32.c`（否则两份文件都定义同一个 `DEVICE_DT_INST_DEFINE`，会链接冲突）。
 - 新增项目根 `./Kconfig`（此前项目没有应用级 Kconfig，默认走 `${ZEPHYR_BASE}/Kconfig`）：补一个隐藏符号 `MINIAUDIO_UAC2_UDC_STM32_FIX`，只在 `USB_DEVICE_STACK_NEXT=y && UDC_STM32=n`（即只有 UAC2 硬件接收固件）时生效，用 `select` 把 `CONFIG_UDC_STM32` 原本会 `select` 的选项（`USE_STM32_LL_USB`/`USE_STM32_HAL_PCD`/`USE_STM32_HAL_PCD_EX`/`UDC_DRIVER_HAS_HIGH_SPEED_SUPPORT`/`STM32_USB_COMMON`/`PINCTRL`）重新选上——这些符号本身没有 prompt，不能直接在 `.conf` 里赋值，只能靠 `select`。同时给 `UDC_STM32_STACK_SIZE`/`UDC_STM32_THREAD_PRIORITY`/`UDC_STM32_MAX_QMESSAGES`/`UDC_STM32_OTG_RXFIFO_BASELINE_SIZE`（原本定义在 `if UDC_STM32` 块里，`UDC_STM32=n` 后它们会变成未定义宏）补上和上游一致的默认值（512/8/8/600）。
-- 已实测编译通过的构建：`./r.sh build-uac2-stm32`（FLASH 92.51%/RAM 77.86%）、`./r.sh build-uac2-null`（FLASH 84.14%/RAM 57.45%）、`./r.sh build-uac2-stm32-prod`（FLASH 83.62%/RAM 44.64%），均成功链接，`src/uac2/udc_stm32.c` 被正确编入且 Zephyr 自带的同名文件未被重复编译。
-- 回归验证：`./r.sh build-pcm`（不涉及 UAC2/USB-next）FLASH/RAM 用量与改动前完全一致，确认新增的根 `Kconfig` 不影响其他固件入口（`play_mcu.c`、`main_pcm5102_st7735s.c`、`main_st7735s.c` 等）；macOS 主机侧 `CMakeLists.txt` 分支未被触及。
+- 当前已验证构建：`./r.sh build-uac2-stm32`（FLASH 92.14%/RAM 93.78%）、`./r.sh build-uac2-implicit`（FLASH 92.12%/RAM 93.57%）、`./r.sh build-uac2-null`（FLASH 29.95%/RAM 49.15%）、`./r.sh build-uac2-null-implicit`（FLASH 29.95%/RAM 49.04%）。四个目标均成功链接，`src/uac2/udc_stm32.c` 被正确编入且 Zephyr 自带的同名文件未被重复编译。资源比例会随诊断和 pipeline 功能变化，以上数字只对应本次文档复查时的构建。
+- 回归验证：默认 Zephyr、PCM5102A、LCD、CMSIS 测试入口及 host 应用/单元测试均已通过。当前源码按职责归入 `src/dspeq/`、`src/pcm5102/`、`src/lcd/`、`src/uac2/` 和 `src/httpctl/`。
 
-**尚未验证、也是本次评估的边界**：以上只证明了"能编译、能链接、STM32 UDC 驱动装载了带修复的等时 OUT 重新武装逻辑"。**没有硬件在手，无法验证真实播放是否连续不中断**——这需要把 `build-zephyr-f401rct6-uac2` 烧录到板子上，配合 macOS `./r.sh build-uac2-macos` + `run-uac2-macos` 实测，并观察 `usb_uac2_get_stats()` 里的 `zero_packets`/`frames`/`i2s_blocks` 是否能持续增长而不再卡死。等 Zephyr 上游把 #113622（或等价修复）合入并在本项目升级到的版本中验证稳定后，按 `src/uac2/README.md` 的步骤删除这个 vendor 目录、改回 Zephyr 自带驱动即可。
+**后续硬件验证结果**：STM32 已能在 macOS 枚举并通过 PCM5102A 实际播放音频；接收计数、`out_delivered` 和 `audio_drop` 已用于长时间观察。当前残余问题不是 #113622 所描述的端点永久静默，而是 HSI/PLLI2S 与主机之间约 2.5-3% 的时钟漂移；详细诊断见 `uac2_pcm5102_macos_dev_log.md`。等 Zephyr 上游把 #113622（或等价修复）合入并在本项目升级到的版本中验证稳定后，可按 `src/uac2/README.md` 的步骤删除 vendored 驱动并改回 Zephyr 自带实现。
 
 ## 8. 建议（原始调研阶段的建议，第 7 节已落地第 1 项）
 
-1. ~~优先验证 #113622 补丁~~ **已完成**：见第 7 节，已 vendor 到 `src/uac2/` 并编译验证通过；仍需硬件实测音频播放。
+1. ~~优先验证 #113622 补丁~~ **已完成**：见第 7 节，已 vendor 到 `src/uac2/`，并完成编译及硬件播放验证。
 2. 补丁验证有效后，评估是否要固定（vendor/pin）这个 commit，或等待其正式合入 main 后再升级 Zephyr 版本；升级前先确认 `v4.4.2` → 目标 commit 之间没有引入其他破坏性变更（如 #102720 相关的 HS 检测逻辑变化，虽然 F401/H7B0 是 FS-only，理论上不受影响，但建议做一次全量回归）。
 3. 继续关注 [#93924](https://github.com/zephyrproject-rtos/zephyr/issues/93924)（Linux testusb 一致性）与 [#114249](https://github.com/zephyrproject-rtos/zephyr/issues/114249)（device_next buffer 链接问题），两者都可能在长时间大数据量传输/USB Hub 场景下暴露。
-4. 由于官方没有 STM32 UAC2 样例，建议把本项目已经跑通的 `src/usb_uac2_device.c` + `src/main_pcm5102_st7735s_uac2.c` 组合，连同调试计数器（zero/invalid packets、checksum）保留下来作为事实上的参考实现，并在遇到新的静默/丢帧现象时，第一时间对照上游 issue 列表（尤其是 area: USB + platform: STM32 标签）而不是默认归因于本项目的 I2S/DSP 管线。
-5. H7B0 虽然有官方板卡定义（`weact/mini_stm32h7b0`），但官方只验证了 CDC ACM；建议在把 UAC2 移植到 H7B0 时，先复用 F401 上已验证的 `usb_uac2_device.c` 逻辑（`src/uac2/udc_stm32.c` 同时覆盖两者），重点检查 H7B0 特有的时钟树（`STM32_SRC_HSI48 USB_SEL`）与 RXFIFO 尺寸（`CONFIG_UDC_STM32_OTG_RXFIFO_BASELINE_SIZE`）是否需要针对更大 I2S 缓冲区调整。
+4. 由于官方没有 STM32 UAC2 样例，建议保留本项目已经跑通的 `src/uac2/uac2_audio_stream.c` + `src/uac2/usb_uac2_device.c` 组合，连同调试计数器（zero/invalid packets、checksum）作为事实上的参考实现，并在遇到新的静默/丢帧现象时，第一时间对照上游 issue 列表（尤其是 area: USB + platform: STM32 标签）而不是默认归因于本项目的 I2S/DSP 管线。
+5. H7B0 虽然有官方板卡定义（`weact/mini_stm32h7b0`），但官方只验证了 CDC ACM；建议在把 UAC2 移植到 H7B0 时，先复用 F401 上已验证的 `src/uac2/uac2_audio_stream.c` 和 `src/uac2/usb_uac2_device.c` 逻辑（`src/uac2/udc_stm32.c` 同时覆盖两者），重点检查 H7B0 特有的时钟树（`STM32_SRC_HSI48 USB_SEL`）与 RXFIFO 尺寸（`CONFIG_UDC_STM32_OTG_RXFIFO_BASELINE_SIZE`）是否需要针对更大 I2S 缓冲区调整。
 
 ## 9. 参考链接
 

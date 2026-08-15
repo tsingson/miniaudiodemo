@@ -2,9 +2,10 @@
 
 ## Scope
 
-Target: STM32F401RCT6 + PCM5102A + ST7735S under Zephyr 4.4.1.
+Target: STM32F401RCT6 + PCM5102A + ST7735S under Zephyr 4.4.2.
 
 The verified application entrypoint is `src/main_pcm5102_st7735s.c`.
+The reusable writer is `src/pcm5102/pcm5102a_audio.c` with its public API in `src/pcm5102/pcm5102a_audio.h`; LCD helpers are under `src/lcd/`.
 
 ## Final wiring
 
@@ -82,7 +83,7 @@ Symptom: the display showed `I2S wr fail -5`, where `-5` is `-EIO`.
 
 Cause: the first block was started immediately, then the application performed a relatively slow series of ST7735S SPI writes for the `Audio stream started` message. The audio DMA underrun put the STM32 I2S stream into its error state.
 
-Fix: four audio blocks are queued before `I2S_TRIGGER_START`. The pre-start display message is written before the clock starts. After the stream starts, the audio loop does not synchronously update the display.
+Fix: the current writer queues eight 128-frame blocks before `I2S_TRIGGER_START`. `PCM_PRIME_BLOCKS` must remain below `CONFIG_I2S_STM32_TX_BLOCK_COUNT=12`, because DMA does not drain the driver queue until the START trigger. The audio loop does not synchronously update the display after streaming starts.
 
 ### 5. No sound despite successful I2S initialization
 
@@ -112,8 +113,8 @@ rg -n "i2s2:|plli2s:|PLLI2S|I2S_SEL" \
 Expected runtime milestones include:
 
 ```text
-PCM5102A I2S TX initialized @ 48000 Hz (DIN/BCK/LRCK)
+PCM5102A I2S ready: 48k stereo PCM16 DIN/BCK/LRCK
 PCM5102A audio stream started
 ```
 
-The absence of `No TX slab block` and `I2S wr fail -5` indicates that the TX queue is continuing to recycle blocks. Actual acoustic output still depends on PCM5102A power, analog ground, line-out wiring, and the amplifier input level.
+The historical `No TX slab block` / `I2S wr fail -5` messages are now logged as `PCM5102A TX slab allocation failed` / `PCM5102A I2S write failed`. Their absence indicates that the TX queue is continuing to recycle blocks. Actual acoustic output still depends on PCM5102A power, analog ground, line-out wiring, and the amplifier input level.

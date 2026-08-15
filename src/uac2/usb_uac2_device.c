@@ -39,14 +39,12 @@ static atomic_t g_byte_count;
 static atomic_t g_frame_count;
 static atomic_t g_buf_requests;
 static atomic_t g_buf_rejects;
-static atomic_t g_buf_releases;
 static atomic_t g_zero_packets;
 static atomic_t g_invalid_packets;
 static atomic_t g_odd_byte_packets;
 static atomic_t g_checksum;
 static atomic_t g_first_packet_logged;
 static atomic_t g_sof_seen;
-static atomic_t g_terminal_enabled;
 static usb_uac2_audio_sink_fn g_audio_sink;
 static void *g_audio_sink_ctx;
 static usb_uac2_fill_query_fn g_feedback_query;
@@ -86,7 +84,6 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
     ARG_UNUSED(user_data);
     if (terminal == UAC2_INPUT_TERMINAL_ID) {
         printk("UAC2 terminal %u %s\n", terminal, enabled ? "enabled" : "disabled");
-        atomic_set(&g_terminal_enabled, enabled ? 1 : 0);
         if (!enabled) {
             atomic_set(&g_uac2_stream_active, 0);
         }
@@ -189,14 +186,8 @@ static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
     ARG_UNUSED(dev);
     ARG_UNUSED(user_data);
     if (terminal == UAC2_INPUT_TERMINAL_ID && buf != NULL) {
-        atomic_inc(&g_buf_releases);
         k_mem_slab_free(&uac2_rx_slab, buf);
     }
-}
-
-uint32_t usb_uac2_get_release_count(void)
-{
-    return (uint32_t)atomic_get(&g_buf_releases);
 }
 
 uint32_t usb_uac2_get_audio_out_dropped(void)
@@ -293,11 +284,6 @@ static const struct uac2_ops uac2_ops = {
 bool usb_uac2_stream_active(void)
 {
     return atomic_get(&g_uac2_stream_active) != 0;
-}
-
-bool usb_uac2_terminal_enabled(void)
-{
-    return atomic_get(&g_terminal_enabled) != 0;
 }
 
 bool usb_uac2_first_packet_seen(void)

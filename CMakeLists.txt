@@ -17,12 +17,12 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
     target_sources(app PRIVATE
       src/main_pcm5102a_test.c
       src/audio_4_wav_data.c
-      src/cmsis_eq_stage.c
+      src/dspeq/cmsis_eq_stage.c
       /Users/qinshen/go/zephyrproject/CMSIS-DSP/Source/FilteringFunctions/FilteringFunctions.c
-      src/pcm5102a_audio.c
-      src/play_audio_pipeline.c
-      src/play_pipeline_fanout.c
-      src/play_pipeline_mix.c
+      src/pcm5102/pcm5102a_audio.c
+      src/dspeq/play_audio_pipeline.c
+      src/dspeq/play_pipeline_fanout.c
+      src/dspeq/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -38,12 +38,12 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   elseif(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
     target_sources(app PRIVATE
       src/main_pcm5102_st7735s_uac2.c
-      src/play_mcu_zephyr_pcm5102.c
-      src/pcm5102a_audio.c
-      src/play_audio_pipeline.c
-      src/play_pipeline_async.c
-      src/play_pipeline_fanout.c
-      src/play_pipeline_mix.c
+      src/pcm5102/play_mcu_zephyr_pcm5102.c
+      src/pcm5102/pcm5102a_audio.c
+      src/dspeq/play_audio_pipeline.c
+      src/dspeq/play_pipeline_async.c
+      src/dspeq/play_pipeline_fanout.c
+      src/dspeq/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -55,7 +55,8 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_eq_normal.c
       src/dspeq/play_multiband_dynamics.c
       src/audio_3_wav_data.c
-      src/usb_uac2_device.c
+      src/uac2/uac2_audio_stream.c
+      src/uac2/usb_uac2_device.c
       # Vendored + patched STM32 UDC driver (see src/uac2/README.md): adds the
       # isochronous OUT re-arm callback missing upstream (unmerged
       # zephyr#113622), required for UAC2 playback to survive a missed frame.
@@ -73,10 +74,10 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
     target_sources(app PRIVATE
       src/main_pcm5102_st7735s.c
       src/audio_3_wav_data.c
-      src/pcm5102a_audio.c
-      src/play_audio_pipeline.c
-      src/play_pipeline_fanout.c
-      src/play_pipeline_mix.c
+      src/pcm5102/pcm5102a_audio.c
+      src/dspeq/play_audio_pipeline.c
+      src/dspeq/play_pipeline_fanout.c
+      src/dspeq/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -87,7 +88,7 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_eq_dynamic.c
       src/dspeq/play_eq_normal.c
       src/dspeq/play_multiband_dynamics.c
-      src/play_mcu_zephyr_pcm5102.c)
+      src/pcm5102/play_mcu_zephyr_pcm5102.c)
   elseif(MINIAUDIO_I2S_MAIN)
     target_sources(app PRIVATE src/main_i2s.c src/wav_3.c)
   elseif(MINIAUDIO_ST7735S_DEMO_MAIN)
@@ -95,11 +96,11 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   else()
     target_sources(app PRIVATE
       src/play_mcu.c
-      src/play_mcu_zephyr_pcm5102.c
-      src/pcm5102a_audio.c
-      src/play_audio_pipeline.c
-      src/play_pipeline_fanout.c
-      src/play_pipeline_mix.c
+      src/pcm5102/play_mcu_zephyr_pcm5102.c
+      src/pcm5102/pcm5102a_audio.c
+      src/dspeq/play_audio_pipeline.c
+      src/dspeq/play_pipeline_fanout.c
+      src/dspeq/play_pipeline_mix.c
       src/dspeq/play_dsp_common.c
       src/dspeq/play_dsp_plugins.c
       src/dspeq/play_eq_runtime.c
@@ -114,18 +115,18 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
 
   if(MINIAUDIO_ST7735S_ZPIX_FONT)
     target_sources(app PRIVATE
-      src/st7735s_log_display.c
-      src/zpix12_font_data.c)
+      src/lcd/st7735s_log_display.c
+      src/lcd/zpix12_font_data.c)
     target_compile_definitions(app PRIVATE MINIAUDIO_ST7735S_ZPIX_FONT=1)
   elseif(NOT MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
     # The UAC2 receiver no longer drives the ST7735S screen (see
     # uac2_pcm5102_macos_dev_log.md): serial LOG_INF status covers it, and the
     # stub driver's per-pixel blocking SPI writes were starving the USB stack
     # and audio_out threads for the better part of a second on every refresh.
-    target_sources(app PRIVATE src/st7735s_log_display_stub.c)
+    target_sources(app PRIVATE src/lcd/st7735s_log_display_stub.c)
   endif()
 
-  target_include_directories(app PRIVATE src src/dspeq)
+  target_include_directories(app PRIVATE src src/dspeq src/pcm5102 src/lcd)
   # play_dsp_state's analyzer/observer-tap buffers (4x ANALYZER_WINDOW floats)
   # are unused telemetry on this 64KB-RAM MCU target and previously silently
   # overflowed main()'s stack; shrink them here instead of the 512-sample
@@ -157,7 +158,7 @@ add_executable(three_way_macos src/three_way_crossover_macos_offline.c
 
 add_executable(play_macos
                src/play_macos.c
-               src/dsp_http_ctrl.c
+               src/httpctl/dsp_http_ctrl.c
                src/dspeq/play_dsp_common.c
                src/dspeq/play_dsp_plugins.c
                src/dspeq/play_eq_runtime.c
@@ -171,7 +172,7 @@ add_executable(play_macos
                src/miniaudio/miniaudio.c)
 add_executable(main_uac2_srv
                src/main_uac2_srv.c
-               src/dsp_http_ctrl.c
+               src/httpctl/dsp_http_ctrl.c
                src/dspeq/play_dsp_common.c
                src/dspeq/play_dsp_plugins.c
                src/dspeq/play_eq_runtime.c
@@ -185,6 +186,7 @@ add_executable(main_uac2_srv
                src/miniaudio/miniaudio.c)
 add_executable(play_mcu
                src/play_mcu.c
+               src/dspeq/play_audio_pipeline.c
                src/dspeq/play_dsp_common.c
                src/dspeq/play_dsp_plugins.c
                src/dspeq/play_eq_runtime.c
@@ -247,7 +249,7 @@ add_executable(test_pipeline_chain
                src/dspeq/play_multiband_dynamics.c)
 add_executable(test_pipeline_cross_platform
                tests/test_pipeline_cross_platform.c
-               src/play_audio_pipeline.c
+               src/dspeq/play_audio_pipeline.c
                src/dspeq/play_dsp_common.c
                src/dspeq/play_dsp_plugins.c
                src/dspeq/play_eq_runtime.c
@@ -260,32 +262,38 @@ add_executable(test_pipeline_cross_platform
                src/dspeq/play_multiband_dynamics.c)
 add_executable(test_pipeline_fanout
                tests/test_pipeline_fanout.c
-               src/play_pipeline_fanout.c
+               src/dspeq/play_pipeline_fanout.c
                src/dspeq/play_pipeline.c)
 add_executable(test_pipeline_mix
                tests/test_pipeline_mix.c
-               src/play_pipeline_mix.c
+               src/dspeq/play_pipeline_mix.c
                src/dspeq/play_pipeline.c)
 add_executable(test_channel_plan
                tests/test_channel_plan.c
-               src/play_channel_plan.c)
-target_include_directories(miniaudiodemo PRIVATE src src/dspeq)
-target_include_directories(three_way_macos PRIVATE src src/dspeq)
-target_include_directories(play_macos PRIVATE src src/dspeq)
-target_include_directories(main_uac2_srv PRIVATE src src/dspeq)
-target_include_directories(play_mcu PRIVATE src src/dspeq)
-target_include_directories(verify_eq_gain PRIVATE src src/dspeq)
-target_include_directories(verify_eq_taps PRIVATE src src/dspeq)
-target_include_directories(verify_eq_linear_mono PRIVATE src src/dspeq)
-target_include_directories(verify_eq_low_seq PRIVATE src src/dspeq)
-target_include_directories(test_eq_dynamic PRIVATE src src/dspeq)
-target_include_directories(test_eq_normal PRIVATE src src/dspeq)
-target_include_directories(test_eq_linear PRIVATE src src/dspeq)
-target_include_directories(test_pipeline_chain PRIVATE src src/dspeq)
-target_include_directories(test_pipeline_cross_platform PRIVATE src src/dspeq)
-target_include_directories(test_pipeline_fanout PRIVATE src src/dspeq)
-target_include_directories(test_pipeline_mix PRIVATE src src/dspeq)
-target_include_directories(test_channel_plan PRIVATE src src/dspeq)
+               src/dspeq/play_channel_plan.c)
+set(MINIAUDIO_APP_INCLUDE_DIRS
+  src
+  src/dspeq
+  src/httpctl
+  src/lcd
+  src/pcm5102)
+target_include_directories(miniaudiodemo PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(three_way_macos PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(play_macos PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(main_uac2_srv PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(play_mcu PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(verify_eq_gain PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(verify_eq_taps PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(verify_eq_linear_mono PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(verify_eq_low_seq PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_eq_dynamic PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_eq_normal PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_eq_linear PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_pipeline_chain PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_pipeline_cross_platform PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_pipeline_fanout PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_pipeline_mix PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
+target_include_directories(test_channel_plan PRIVATE ${MINIAUDIO_APP_INCLUDE_DIRS})
 
 if(PLAY_USE_CMSIS_DSP)
   set(CMSIS_DSP_DIR "${CMAKE_SOURCE_DIR}/../CMSIS-DSP")

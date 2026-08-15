@@ -6,7 +6,7 @@
 
 - 20 / 35 / 60 / 110 / 220 / 360 / 700 / 1.6k / 3.2k / 4.8k / 7.2k / 10k / 16k / 18k / 20k / 22k
 
-当前模式边界（src/dspeq/play_dsp_common.h）为：
+当前模式边界（`src/dspeq/play_dsp_defs.h`）为：
 
 - Linear: <= 220Hz
 - Dynamic: (220Hz, 16kHz]

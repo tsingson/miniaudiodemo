@@ -1,6 +1,8 @@
-新计划:
+# UAC2 原始计划（已完成）
 
-1. 读取 ./src/play_macos.c , 复制成 ./src/main_uac2_srv.c , 把这个原来是 macOS core audio 播放, 修改成通过 usb 的 uac2 发送给下面 uac2 的 stm32f401
-2. 读取 ./src/main_pcm5102_st7735s.c , 复制为 src/main_pcm5102_st7735s_uac2.c , 修改为使用 zephyr 4.4.1 原生的 uac2 , 并且从 uac2 接收音频后, 转化为 pcm5102a 能播放的格式, 再推送给 pcm5102a 播放
-3. 以上两个, 请分别提供快捷编译方式
-4. 实现验证后, 请写一个文档 uac2_pcm5102_macos_dev_log.md, 详细记录开发技术细节, 及调试 过程中遇到的问题与解决
+本文档保留最初任务背景；当前实现状态以项目 README、`play_uac2.md` 和 `uac2_pcm5102_macos_dev_log.md` 为准。
+
+1. macOS 发送入口已实现为 `src/main_uac2_srv.c`，通过 CoreAudio/miniaudio 选择 STM32 UAC2 播放设备。
+2. STM32F401 接收入口为 `src/main_pcm5102_st7735s_uac2.c`，使用 Zephyr 4.4.2 `device_next` UAC2；可复用协议/流桥接位于 `src/uac2/`，PCM5102A 输出位于 `src/pcm5102/`。
+3. 快捷构建/烧录命令已集中在 `r.sh`。
+4. 硬件调试过程与后续研究方向见 `uac2_pcm5102_macos_dev_log.md`。

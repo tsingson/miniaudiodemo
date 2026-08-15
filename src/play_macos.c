@@ -1,6 +1,6 @@
 #include "miniaudio/miniaudio.h"
 #include "play_dsp_common.h"
-#include "dsp_http_ctrl.h"
+#include "httpctl/dsp_http_ctrl.h"
 
 #include <math.h>
 #include <pthread.h>
