@@ -14,6 +14,8 @@ macOS UAC2 到 STM32F401/PCM5102A 的架构、当前实现状态和后续协议�
 
 UAC2 快捷命令：`./r.sh build-uac2-macos` 构建 macOS sender，`UAC2_DEVICE_NAME="STM32" ./r.sh run-uac2-macos` 运行 sender；STM32 可用 `build/flash-uac2-stm32`（显式反馈）或 `build/flash-uac2-implicit`（隐式反馈）构建和烧录。
 
+FK7B0M1 STM32H7B0 核心板使用独立入口：`./r.sh build-uac2-h7b0` / `./r.sh flash-uac2-h7b0`。该目标共享 UAC2、异步队列和 PCM5102A 输出代码，但由于 H7B0VBT6 的 128KB Flash，不编入本地 WAV fallback 和完整 DSP 插件链；USB UAC2 PCM16/48kHz 到 PCM5102A 播放功能保持一致。
+
 USART1 (PA9/PA10, 115200) 可作为硬件后备串口。生产模式使用 `prj_prod.conf`，关闭日志、控制台和 USB CDC。
 
 
@@ -118,6 +120,7 @@ if (st7735s_log_display_init() == 0) {
 - `build-pcm/flash-pcm/all-pcm` 使用 PCM5102+ST7735S 内嵌 WAV/DSP 入口（`src/main_pcm5102_st7735s.c`）。
 - `build-pcm5102a-test/flash-pcm5102a-test` 使用确定性 PCM16/48kHz 写入测试入口，不带 DSP 管线。
 - `build-uac2-stm32(-prod)`、`build-uac2-implicit`、`build-uac2-null` 和 `build-uac2-null-implicit` 均使用原生 Zephyr `zephyr,uac2` 接收入口；`src/uac2/uac2_audio_stream.c` 统一封装异步队列、设备初始化和统计，`src/uac2/usb_uac2_device.c` 只负责协议与端点。项目已不再包含任何 TinyUSB 代码路径。
+- `build-uac2-h7b0` 使用 `mini_stm32h7b0` board 和 `boards/stm32h7b0vbt6_uac2.overlay`；FK7B0M1 的 PCM5102A 三线 I2S 使用 PB13/BCK、PB12/LRCK、PB15/DIN，USB 使用 PA11/PA12，日志使用 USART1 PA9/PA10。
 - `clean` 只清理 `build/demo/demo-prod/pcm/pcm-prod` 五个目录，不清理 UAC2/PCM5102A 测试/macOS 相关构建目录，需要时手动 `rm -rf build-zephyr-f401rct6-uac2*  build-zephyr-f401rct6-pcm5102a-test build-macos-uac2`。
 
 ### 当前 I2S/控制脚映射

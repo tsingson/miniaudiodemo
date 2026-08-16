@@ -1,0 +1,80 @@
+/* FK7B0M1 STM32H7B0VBT6 UAC2 + PCM5102A overlay.
+ * The core board exposes PA11/PA12 for USB and PB12/PB13/PB15 for I2S2.
+ */
+
+#include <zephyr/dt-bindings/usb/audio.h>
+
+/ {
+	uac2_audio: usb_audio2 {
+		compatible = "zephyr,uac2";
+		status = "okay";
+		full-speed;
+		audio-function = <AUDIO_FUNCTION_OTHER>;
+
+		uac2_clock: clock-source {
+			compatible = "zephyr,uac2-clock-source";
+			clock-type = "internal-programmable";
+			frequency-control = "host-programmable";
+			sampling-frequencies = <48000>;
+		};
+
+		uac2_input: usb-input-terminal {
+			compatible = "zephyr,uac2-input-terminal";
+			clock-source = <&uac2_clock>;
+			terminal-type = <USB_TERMINAL_STREAMING>;
+			front-left;
+			front-right;
+		};
+
+		uac2_output: pcm5102a-output-terminal {
+			compatible = "zephyr,uac2-output-terminal";
+			data-source = <&uac2_input>;
+			clock-source = <&uac2_clock>;
+			terminal-type = <OUTPUT_TERMINAL_HEADPHONES>;
+		};
+
+		uac2_stream: audio-streaming {
+			compatible = "zephyr,uac2-audio-streaming";
+			linked-terminal = <&uac2_input>;
+			subslot-size = <2>;
+			bit-resolution = <16>;
+		};
+	};
+
+	chosen {
+		miniaudio,i2s-tx = &i2s2;
+		zephyr,console = &usart1;
+		zephyr,shell-uart = &usart1;
+	};
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_tx_pa9 &usart1_rx_pa10>;
+	pinctrl-names = "default";
+	current-speed = <115200>;
+	status = "okay";
+};
+
+&i2s2 {
+	pinctrl-0 = <&i2s2_ck_pb13 &i2s2_ws_pb12 &spi2_mosi_pb15>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&usbotg_hs {
+	pinctrl-0 = <&usb_otg_hs_dm_pa11 &usb_otg_hs_dp_pa12>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&dma1 {
+	status = "okay";
+};
+
+&dma2 {
+	status = "okay";
+};
+
+&dmamux1 {
+	status = "okay";
+};

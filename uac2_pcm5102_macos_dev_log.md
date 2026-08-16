@@ -86,7 +86,7 @@ UAC2_DEVICE_NAME="STM32F401" ./r.sh run-uac2-macos   # 设备名填不对会打�
 重构方案：
 - **UAC2 输入层**（`usb_uac2_device.c/h`）：只管 USB host/device 交互和数据接收，不认识任何具体输出设备。对外只暴露两个通用回调注册接口：`usb_uac2_set_audio_sink()`（推送音频）和 `usb_uac2_set_feedback_source()`（查询下游缓冲占用率，返回 0-1000 千分比）。
 - **DSP 管道层**（`play_audio_pipeline.*` + `play_pipeline`/`play_pipeline_fanout`/`play_pipeline_mix`/`play_dsp_plugins`，均在 `src/dspeq/`）：新增 `play_pipeline_async.c/h`——一个通用的"队列+消费者线程"异步解耦适配器，队列深度、线程优先级和 scratch buffer 均由调用方静态提供，零动态分配。
-- **输入输出适配（当前结构）**：`src/uac2/uac2_audio_stream.c` 统一拥有异步队列、工作线程、设备启动和统计快照；`main_pcm5102_st7735s_uac2.c` 只通过 `uac2_audio_stream_config` 提供 pipeline 处理回调和可选的 PCM5102A 缓冲占用查询。协议层 `src/uac2/usb_uac2_device.c` 不认识 pipeline 或 PCM5102A，应用入口也不再直接调用底层 `usb_uac2_*` API。
+- **输入输出适配（当前结构）**：`src/uac2/uac2_audio_stream.c` 统一拥有异步队列、工作线程、设备启动和统计快照；`src/uac2/uac2_pcm5102_app.c` 负责把 pipeline/PCM5102A 回调交给桥接层，`main_pcm5102_stm32f401_uac2.c` 和 `main_pcm5102_stm32h7b0_uac2.c` 只提供板名入口。协议层 `src/uac2/usb_uac2_device.c` 不认识 pipeline 或 PCM5102A。
 
 **方法论**：解耦不是把回调函数签名做成 `void*` 就完了，关键是"谁拥有缓冲/时序控制权"。当前由 `uac2_audio_stream` 拥有 UAC2 到 pipeline 的异步交接，通用队列实现仍由 `play_pipeline_async` 提供；协议层和 PCM5102A 输出层都不感知彼此。判断一个信号是否适合作为耦合点，还要看时间尺度：反馈信号需要能反映"秒级"趋势，用只有约 8ms 深的异步交接队列作为反馈来源，天生采不到趋势（见 3.7）。
 
@@ -194,6 +194,26 @@ UAC2_DEVICE_NAME="STM32F401" ./r.sh run-uac2-macos   # 设备名填不对会打�
 - 用户反馈：当前实现听感已有改进（从"持续丢包+频繁卡顿"到"链路健康+偶发周期性小卡顿"），但还不够理想。
 
 ## 5. 待办 / 后续方向
+
+### 5.1 FK7B0M1 STM32H7B0 核心板适配
+
+根据仓库资料 `docs/STM32H7B0VBT6核心板（型号FK7B0M1）`，新增了
+`boards/stm32h7b0vbt6_uac2.overlay`。该板使用 25MHz HSE，USB 使用
+PA11/PA12，USART1 使用 PA9/PA10；PCM5102A 三线 I2S 使用 PB13/BCK、
+PB12/LRCK、PB15/DIN。I2S2 的 DMA 通过 DMAMUX1，overlay 显式启用了
+`dma1`、`dma2` 和 `dmamux1`。
+
+入口拆分为：
+
+- `src/main_pcm5102_stm32f401_uac2.c`
+- `src/main_pcm5102_stm32h7b0_uac2.c`
+- 共享实现 `src/uac2/uac2_pcm5102_app.c`
+
+F401 和 H7B0 共用 UAC2、异步队列、PCM5102A 输出和日志统计。H7B0VBT6
+官方 board 定义只有 128KB Flash，因此 H7B0 目标启用 lite 模式：保留
+UAC2 PCM16/48kHz 接收、异步缓冲和 PCM5102A 输出，移除本地 WAV fallback
+及完整 DSP/plugin 链。H7B0 当前已完成 DTS 和固件编译验证，尚未完成真实
+硬件烧录、USB 枚举和声学播放验证。
 
 1. **反馈机制**：显式反馈（explicit feedback）路线已确认在当前 macOS 行为下走不通。可选方向：
         - 隐式反馈对照实验（`build-uac2-implicit`）：已有初步听感改善，仍需量化验证。

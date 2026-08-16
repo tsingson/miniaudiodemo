@@ -38,7 +38,8 @@ instrumented in [usb_uac2_device.c](usb_uac2_device.c).
 
 ## How it's wired in
 
-- `CMakeLists.txt` (`MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN` branch) adds
+- `CMakeLists.txt` (`MINIAUDIO_PCM5102_STM32F401_UAC2_MAIN` or
+  `MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN` branch) adds
   `src/uac2/udc_stm32.c` to `target_sources(app ...)` and adds
   `${ZEPHYR_BASE}/drivers/usb/udc` to the include path (needed for the
   private `"udc_common.h"`; `stm32_usb_common.h` is already globally
@@ -49,7 +50,7 @@ instrumented in [usb_uac2_device.c](usb_uac2_device.c).
   application `Kconfig` symbol `MINIAUDIO_UAC2_UDC_STM32_FIX` re-selects the
   dependencies and defaults normally supplied by `CONFIG_UDC_STM32`.
 - Zephyr's `usbd_uac2.c` class layer remains stock. This only affects the
-  `MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN=ON` build (`./r.sh build-uac2-stm32`,
+  board-specific UAC2 builds (`./r.sh build-uac2-stm32`,
   `build-uac2-implicit`, `build-uac2-null`, `build-uac2-null-implicit`,
   `build-uac2-stm32-prod`).
 - Applies equally to STM32F401 (`st,stm32-otgfs`) and STM32H7B0

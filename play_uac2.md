@@ -40,6 +40,12 @@ The reusable UAC2 boundary is split into two layers:
 - `src/uac2/usb_uac2_device.c` owns descriptors, endpoints, packet conversion, and protocol counters.
 - `src/uac2/uac2_audio_stream.c` owns the non-blocking queue/worker handoff, device startup, and a single statistics snapshot API. Applications provide only an audio process callback and an optional downstream-fill callback.
 
+The F401 and FK7B0M1 H7B0 entries are thin board-specific wrappers around
+`src/uac2/uac2_pcm5102_app.c`. H7B0 uses a lite composition because the
+official `mini_stm32h7b0` definition exposes a 128KB Flash region: it keeps
+UAC2 transport, asynchronous buffering, and PCM5102A output, but omits the
+embedded WAV fallback and full DSP/plugin sources.
+
 ### Work
 
 1. Extract the reusable PCM5102A writer from `src/pcm5102/play_mcu_zephyr_pcm5102.c` into:
@@ -142,6 +148,10 @@ UAC2_DEVICE_NAME="STM32F401 PCM5102A UAC2" ./r.sh run-uac2-macos
 # STM32 pure UAC2 debug
 ./r.sh build-uac2-stm32
 ./r.sh flash-uac2-stm32
+
+# FK7B0M1 STM32H7B0 core board
+./r.sh build-uac2-h7b0
+./r.sh flash-uac2-h7b0
 
 # STM32 implicit-feedback comparison
 ./r.sh build-uac2-implicit

@@ -7,7 +7,9 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
   option(MINIAUDIO_ST7735S_ZPIX_FONT "Enable full ZPix Chinese font logger (large flash usage)" OFF)
   option(MINIAUDIO_ST7735S_DEMO_MAIN "Use minimal ST7735S hello-copilot demo entry" OFF)
   option(MINIAUDIO_PCM5102_ST7735S_MAIN "Use PCM5102A + ST7735S audio demo entry" OFF)
-  option(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN "Use UAC2 receiver + PCM5102A + ST7735S entry" OFF)
+  option(MINIAUDIO_PCM5102_STM32F401_UAC2_MAIN "Use STM32F401 UAC2 receiver + PCM5102A entry" OFF)
+  option(MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN "Use STM32H7B0 UAC2 receiver + PCM5102A entry" OFF)
+  option(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN "Deprecated alias for the STM32F401 UAC2 entry" OFF)
   option(MINIAUDIO_PCM5102A_TEST_MAIN "Use deterministic PCM5102A writer test entry" OFF)
   option(MINIAUDIO_UAC2_NULL_SINK "Build UAC2 protocol test without PCM output" OFF)
   option(MINIAUDIO_I2S_MAIN "Use direct PCM5102 I2S WAV playback entry" OFF)
@@ -35,26 +37,14 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/dspeq/play_multiband_dynamics.c)
   elseif(MINIAUDIO_STM32H7B0VBT6_DEMO_MAIN)
     target_sources(app PRIVATE src/main_stm32h7b0vbt6.c)
-  elseif(MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
+  elseif(MINIAUDIO_PCM5102_STM32F401_UAC2_MAIN OR
+         MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN OR
+         MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
     target_sources(app PRIVATE
-      src/main_pcm5102_st7735s_uac2.c
+      src/uac2/uac2_pcm5102_app.c
       src/pcm5102/play_mcu_zephyr_pcm5102.c
       src/pcm5102/pcm5102a_audio.c
-      src/dspeq/play_audio_pipeline.c
       src/dspeq/play_pipeline_async.c
-      src/dspeq/play_pipeline_fanout.c
-      src/dspeq/play_pipeline_mix.c
-      src/dspeq/play_dsp_common.c
-      src/dspeq/play_dsp_plugins.c
-      src/dspeq/play_eq_runtime.c
-      src/dspeq/eq_low_seq.c
-      src/dspeq/play_pipeline.c
-      src/dspeq/play_pipeline_eq_stages.c
-      src/dspeq/play_eq_linear.c
-      src/dspeq/play_eq_dynamic.c
-      src/dspeq/play_eq_normal.c
-      src/dspeq/play_multiband_dynamics.c
-      src/audio_3_wav_data.c
       src/uac2/uac2_audio_stream.c
       src/uac2/usb_uac2_device.c
       # Vendored + patched STM32 UDC driver (see src/uac2/README.md): adds the
@@ -63,9 +53,35 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       # prj_uac2.conf sets CONFIG_UDC_STM32=n so Zephyr's own copy is not
       # also compiled.
       src/uac2/udc_stm32.c)
+    if(NOT MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN)
+      target_sources(app PRIVATE
+        src/dspeq/play_audio_pipeline.c
+        src/dspeq/play_pipeline_async.c
+        src/dspeq/play_pipeline_fanout.c
+        src/dspeq/play_pipeline_mix.c
+        src/dspeq/play_dsp_common.c
+        src/dspeq/play_dsp_plugins.c
+        src/dspeq/play_eq_runtime.c
+        src/dspeq/eq_low_seq.c
+        src/dspeq/play_pipeline.c
+        src/dspeq/play_pipeline_eq_stages.c
+        src/dspeq/play_eq_linear.c
+        src/dspeq/play_eq_dynamic.c
+        src/dspeq/play_eq_normal.c
+        src/dspeq/play_multiband_dynamics.c
+        src/audio_3_wav_data.c)
+    endif()
+    if(MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN)
+      target_sources(app PRIVATE src/main_pcm5102_stm32h7b0_uac2.c)
+    else()
+      target_sources(app PRIVATE src/main_pcm5102_stm32f401_uac2.c)
+    endif()
     target_include_directories(app PRIVATE ${ZEPHYR_BASE}/drivers/usb/udc)
     if(MINIAUDIO_UAC2_NULL_SINK)
       target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_NULL_SINK=1)
+    endif()
+    if(MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN)
+      target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_H7B0_LITE=1)
     endif()
     if(DTC_OVERLAY_FILE MATCHES "uac2_implicit")
       target_compile_definitions(app PRIVATE MINIAUDIO_UAC2_IMPLICIT=1)
@@ -118,7 +134,9 @@ if(DEFINED ZEPHYR_BASE OR DEFINED ENV{ZEPHYR_BASE})
       src/lcd/st7735s_log_display.c
       src/lcd/zpix12_font_data.c)
     target_compile_definitions(app PRIVATE MINIAUDIO_ST7735S_ZPIX_FONT=1)
-  elseif(NOT MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN)
+  elseif(NOT (MINIAUDIO_PCM5102_STM32F401_UAC2_MAIN OR
+              MINIAUDIO_PCM5102_STM32H7B0_UAC2_MAIN OR
+              MINIAUDIO_PCM5102_ST7735S_UAC2_MAIN))
     # The UAC2 receiver no longer drives the ST7735S screen (see
     # uac2_pcm5102_macos_dev_log.md): serial LOG_INF status covers it, and the
     # stub driver's per-pixel blocking SPI writes were starving the USB stack

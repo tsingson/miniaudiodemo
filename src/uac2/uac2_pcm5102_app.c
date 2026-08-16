@@ -5,12 +5,15 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
+#ifndef MINIAUDIO_UAC2_H7B0_LITE
 #include "audio_3_wav_data.h"
 #include "play_audio_pipeline.h"
+#endif
 #include "pcm5102a_audio.h"
 #include "uac2/uac2_audio_stream.h"
+#include "uac2/uac2_pcm5102_app.h"
 
-LOG_MODULE_REGISTER(main_pcm5102_st7735s_uac2, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(uac2_pcm5102_app, LOG_LEVEL_INF);
 
 #define LOCAL_BLOCK_FRAMES UAC2_AUDIO_BLOCK_FRAMES
 #ifndef MINIAUDIO_UAC2_PID
@@ -18,6 +21,7 @@ LOG_MODULE_REGISTER(main_pcm5102_st7735s_uac2, LOG_LEVEL_INF);
 #endif
 
 #ifndef MINIAUDIO_UAC2_NULL_SINK
+#ifndef MINIAUDIO_UAC2_H7B0_LITE
 static int pipeline_sink(void *ctx, const float *frames, uint32_t count)
 {
     int ret = play_audio_pipeline_process((play_audio_pipeline *)ctx, frames, count);
@@ -27,8 +31,9 @@ static int pipeline_sink(void *ctx, const float *frames, uint32_t count)
     return ret;
 }
 #endif
+#endif
 
-#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_IMPLICIT)
+#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_IMPLICIT) && !defined(MINIAUDIO_UAC2_H7B0_LITE)
 /* Feedback needs to track the buffer that actually absorbs USB-vs-DAC clock
  * drift over multi-second timescales: the PCM5102A I2S TX slab (~43ms deep).
  * The async decoupling queue in front of it is too shallow (~8ms) and its
@@ -48,12 +53,21 @@ static uint32_t pcm5102a_fill_permille(void *ctx)
 }
 #endif
 
+#ifdef MINIAUDIO_UAC2_H7B0_LITE
+static int pcm5102a_process(void *ctx, const float *frames, uint32_t count)
+{
+    ARG_UNUSED(ctx);
+    pcm5102a_audio_write_float(frames, count);
+    return 0;
+}
+#endif
+
 static void key_log(const char *message)
 {
     LOG_INF("%s", message);
 }
 
-#ifndef MINIAUDIO_UAC2_NULL_SINK
+#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_H7B0_LITE)
 struct local_wav_view {
     const int16_t *data;
     uint32_t frames;
@@ -135,9 +149,9 @@ static void fill_local_block(float *out, const struct local_wav_view *wav, uint6
 }
 #endif
 
-int main(void)
+int uac2_pcm5102_app_run(const char *board_name)
 {
-#ifndef MINIAUDIO_UAC2_NULL_SINK
+#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_H7B0_LITE)
     static float local_block[LOCAL_BLOCK_FRAMES * UAC2_AUDIO_CHANNELS];
     static play_audio_pipeline pipeline;
     struct local_wav_view local_wav;
@@ -150,10 +164,13 @@ int main(void)
     int64_t next_status_ms = 0;
     int ret;
 
-    key_log("UAC2 receiver start");
+    LOG_INF("UAC2 receiver start: %s", board_name != NULL ? board_name : "unknown board");
 
 #ifndef MINIAUDIO_UAC2_NULL_SINK
     ret = pcm5102a_audio_init();
+#ifdef MINIAUDIO_UAC2_H7B0_LITE
+    uac2_config.process = pcm5102a_process;
+#else
     if (ret == 0) ret = play_audio_pipeline_init(&pipeline,
                                                  UAC2_AUDIO_SAMPLE_RATE,
                                                  UAC2_AUDIO_CHANNELS);
@@ -163,6 +180,7 @@ int main(void)
     uac2_config.process_ctx = &pipeline;
 #ifndef MINIAUDIO_UAC2_IMPLICIT
     uac2_config.feedback_fill = pcm5102a_fill_permille;
+#endif
 #endif
 #else
     ret = 0;
@@ -177,7 +195,7 @@ int main(void)
     key_log("UAC2 null sink");
 #endif
 
-#ifndef MINIAUDIO_UAC2_NULL_SINK
+#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_H7B0_LITE)
     ret = parse_local_wav(&local_wav);
     local_audio_ready = (ret == 0);
     key_log(ret == 0 ? "Local audio playback" : "Local audio parse failed");
@@ -220,7 +238,9 @@ int main(void)
 
             uac2_audio_stream_get_stats(&stats);
 #ifndef MINIAUDIO_UAC2_NULL_SINK
+#ifndef MINIAUDIO_UAC2_H7B0_LITE
             play_audio_pipeline_get_stats(&pipeline, &pipeline_processed, &pipeline_failed);
+#endif
             pcm5102a_audio_sample_slab_range(&slab_min, &slab_max);
 #endif
             uac2_audio_stream_sample_feedback_fill_range(&fb_fill_min, &fb_fill_max);
@@ -233,7 +253,7 @@ int main(void)
                     fb_fill_min, fb_fill_max, slab_min, slab_max);
             next_status_ms += 500;
         }
-#ifndef MINIAUDIO_UAC2_NULL_SINK
+#if !defined(MINIAUDIO_UAC2_NULL_SINK) && !defined(MINIAUDIO_UAC2_H7B0_LITE)
         if (!uac2_audio_stream_active() && local_audio_ready) {
             fill_local_block(local_block, &local_wav, &local_phase);
             (void)play_audio_pipeline_process(&pipeline, local_block, LOCAL_BLOCK_FRAMES);
