@@ -42,6 +42,18 @@ LOG_MODULE_REGISTER(pcm5102a_audio, LOG_LEVEL_INF);
 #error "chosen miniaudio,i2s-tx is missing"
 #endif
 
+/* DMA double buffering configuration */
+#define DMA_DOUBLE_BUFFER_COUNT 2U
+#define DMA_BUFFER_SIZE (PCM_BLOCK_SIZE * DMA_DOUBLE_BUFFER_COUNT)
+
+/* DMA double buffer state */
+static struct {
+    void *buffers[DMA_DOUBLE_BUFFER_COUNT];
+    bool buffer_in_use[DMA_DOUBLE_BUFFER_COUNT];
+    uint32_t current_buffer;
+    bool dma_active;
+} dma_double_buffer_state = {0};
+
 K_MEM_SLAB_DEFINE_STATIC(pcm_tx_slab, PCM_BLOCK_SIZE, PCM_SLAB_BLOCK_COUNT, 4);
 
 static const struct device *g_i2s_dev = DEVICE_DT_GET(PCM_I2S_NODE);
@@ -91,6 +103,26 @@ static int configure_i2s(void)
     return i2s_configure(g_i2s_dev, I2S_DIR_TX, &config);
 }
 
+static int init_dma_double_buffers(void)
+{
+    int ret;
+
+    /* Allocate DMA buffers for double buffering */
+    for (uint32_t i = 0U; i < DMA_DOUBLE_BUFFER_COUNT; ++i) {
+        ret = k_mem_slab_alloc(&pcm_tx_slab, &dma_double_buffer_state.buffers[i], K_FOREVER);
+        if (ret != 0) {
+            LOG_ERR("Failed to allocate DMA buffer %u: %d", i, ret);
+            return ret;
+        }
+        dma_double_buffer_state.buffer_in_use[i] = false;
+    }
+
+    dma_double_buffer_state.current_buffer = 0;
+    dma_double_buffer_state.dma_active = false;
+    LOG_INF("DMA double buffers initialized: %u buffers of size %u bytes", DMA_DOUBLE_BUFFER_COUNT, PCM_BLOCK_SIZE);
+    return 0;
+}
+
 static void recover_i2s(const char *reason)
 {
     int prepare = i2s_trigger(g_i2s_dev, I2S_DIR_TX, I2S_TRIGGER_PREPARE);
@@ -127,6 +159,12 @@ int pcm5102a_audio_init(void)
         return ret;
     }
 
+    ret = init_dma_double_buffers();
+    if (ret != 0) {
+        LOG_ERR("Failed to initialize DMA double buffers: %d", ret);
+        return ret;
+    }
+
     g_ready = true;
     reset_stream_state();
     LOG_INF("PCM5102A I2S ready: 48k stereo PCM16 DIN/BCK/LRCK");
@@ -135,39 +173,37 @@ int pcm5102a_audio_init(void)
 
 static void write_float_unlocked(const float *interleaved, uint32_t frames)
 {
-    int16_t *tx_block;
     int ret;
 
     if (frames > PCM_BLOCK_FRAMES) {
         frames = PCM_BLOCK_FRAMES;
     }
-    /* Bounded wait: this runs on the UAC2/UDC callback path, so an indefinite
-     * K_FOREVER here would stall USB packet reception whenever I2S/DMA drains
-     * slower than the incoming stream, causing audible glitches synced to
-     * playback content. Drop the block instead of blocking the USB thread.
-     */
-    ret = k_mem_slab_alloc(&pcm_tx_slab, (void **)&tx_block, K_MSEC(2));
-    if (ret != 0) {
-        g_write_errors++;
-        LOG_WRN("PCM5102A TX slab allocation failed: %d", ret);
-        return;
-    }
+    /* DMA double buffering implementation */
+    uint32_t current_buffer = dma_double_buffer_state.current_buffer;
+    void *tx_block = dma_double_buffer_state.buffers[current_buffer];
 
+    /* Prepare audio data in the DMA buffer */
+    int16_t *tx_block_int16 = (int16_t *)tx_block;
     for (uint32_t i = 0U; i < frames * PCM_CHANNELS; ++i) {
         float value = interleaved[i];
         if (value > 1.0f) value = 1.0f;
         if (value < -1.0f) value = -1.0f;
-        tx_block[i] = (int16_t)lrintf(value * 32767.0f);
+        tx_block_int16[i] = (int16_t)lrintf(value * 32767.0f);
     }
     for (uint32_t i = frames * PCM_CHANNELS; i < PCM_BLOCK_FRAMES * PCM_CHANNELS; ++i) {
-        tx_block[i] = 0;
+        tx_block_int16[i] = 0;
     }
 
+    /* Mark buffer as in use and switch to next buffer */
+    dma_double_buffer_state.buffer_in_use[current_buffer] = true;
+    dma_double_buffer_state.current_buffer = (current_buffer + 1) % DMA_DOUBLE_BUFFER_COUNT;
+
+    /* Use DMA to transfer data to I2S - this is non-blocking */
     ret = i2s_write(g_i2s_dev, tx_block, PCM_BLOCK_SIZE);
     if (ret != 0) {
         g_write_errors++;
         LOG_WRN("PCM5102A I2S write failed: %d", ret);
-        k_mem_slab_free(&pcm_tx_slab, tx_block);
+        dma_double_buffer_state.buffer_in_use[current_buffer] = false;
         if (ret == -EIO) {
             recover_i2s("write-eio");
         }
